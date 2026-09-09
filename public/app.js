@@ -112,7 +112,7 @@
   ];
 
   let state;
-  try { state = JSON.parse(localStorage.getItem(storageKey)) || structuredClone(seed); }
+  try { state = window.JOBFLOW_CLOUD ? structuredClone(window.JOBFLOW_CLOUD.initialState) : JSON.parse(localStorage.getItem(storageKey)) || structuredClone(seed); }
   catch { state = structuredClone(seed); }
   if (!state.capacity) state.capacity = structuredClone(capacitySeed);
   if (!state.timeline) state.timeline = structuredClone(timelineSeed);
@@ -162,12 +162,23 @@
   let timer = { running: false, seconds: 0, interval: null };
 
   let lastSavedState;
-  const save = () => { syncRelations(); try { const data=JSON.stringify(state);localStorage.setItem(storageKey,data);lastSavedState=data;return true; } catch { if(lastSavedState)state=JSON.parse(lastSavedState);showToast("Save failed: browser storage is unavailable or full. The change was not saved.");return false; } };
+  const save = () => {
+    syncRelations();
+    if (window.JOBFLOW_CLOUD) {
+      const data=JSON.stringify(state);
+      if (data===lastSavedState) return true;
+      const accepted=window.JOBFLOW_CLOUD.save(JSON.parse(data));
+      if (accepted) lastSavedState=data;
+      else if(lastSavedState) state=JSON.parse(lastSavedState);
+      return accepted;
+    }
+    try { const data=JSON.stringify(state);localStorage.setItem(storageKey,data);lastSavedState=data;return true; } catch { if(lastSavedState)state=JSON.parse(lastSavedState);showToast("Save failed: browser storage is unavailable or full. The change was not saved.");return false; }
+  };
   const getJob = id => state.jobs.find(job => job.id === id);
   const total = (items, field) => items.reduce((sum, item) => sum + Number(item[field] || 0), 0);
   const workingJobs = () => state.jobs.filter(job => !["Complete","Cancelled"].includes(job.status));
   const initials = name => name.split(/\s+/).map(x => x[0]).slice(0,2).join("").toUpperCase();
-  const currentStaffName = () => state.capacity.members[0]?.name || "User";
+  const currentStaffName = () => window.JOBFLOW_CLOUD?.email || state.capacity.members[0]?.name || "User";
   const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
   let calendarMonth = new Date(new Date().getFullYear(),new Date().getMonth(),1);
   let timelineOffset = timelineDay(todayKey());
@@ -2515,6 +2526,7 @@
   syncRelations();
   refreshStaffSelects();
   refreshClientSelects();
-  if(seededBoardViews||seededDemoData||maskedDemoNames||migratedRecurringJobs)save();else lastSavedState=JSON.stringify(state);
+  if(window.JOBFLOW_CLOUD) lastSavedState=JSON.stringify(state);
+  else if(seededBoardViews||seededDemoData||maskedDemoNames||migratedRecurringJobs)save();else lastSavedState=JSON.stringify(state);
   render();
 })();

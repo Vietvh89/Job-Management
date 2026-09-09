@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 const root = new URL('../public/', import.meta.url);
-const types = { 'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript; charset=utf-8', 'staff-data.js': 'text/javascript; charset=utf-8', 'styles.css': 'text/css; charset=utf-8' };
+const types = { 'index.html': 'text/html; charset=utf-8', 'app.js': 'text/javascript; charset=utf-8', 'staff-data.js': 'text/javascript; charset=utf-8', 'styles.css': 'text/css; charset=utf-8', 'cloud.js':'text/javascript; charset=utf-8', 'cloud-config.js':'text/javascript; charset=utf-8', 'cloud.css':'text/css; charset=utf-8', 'vendor/supabase.js':'text/javascript; charset=utf-8' };
 const port = Number(process.env.PORT || 3000);
 createServer(async (req, res) => {
   if (!['GET', 'HEAD'].includes(req.method)) { res.writeHead(405); res.end(); return; }

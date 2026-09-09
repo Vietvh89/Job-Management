@@ -1,83 +1,50 @@
-# JobFlow – mã nguồn triển khai độc lập
+# JobFlow – Supabase + Netlify
 
-Xuất từ bản Sites đã công khai ngày 09/09/2026, phiên bản 29. Giữ nguyên HTML/CSS/JavaScript và dữ liệu khởi tạo của ứng dụng. Không cần tài khoản ChatGPT để chạy bản này. Không thay đổi website Sites hiện tại.
+Repository `Vietvh89/Job-Management`; Netlify `jobflow-studio-viet`; Supabase project `lqboqzhjhepeyirdfctp`.
 
-## Đọc trước khi sử dụng
+## Bắt đầu
 
-Đây là website tĩnh hoạt động trên trình duyệt, **chưa phải hệ thống dùng chung dữ liệu cho nhiều nhân sự**.
+1. Supabase → Authentication → URL Configuration: Site URL `https://jobflow-studio-viet.netlify.app`, Redirect URLs thêm `https://jobflow-studio-viet.netlify.app/`. Giữ bật xác nhận email.
+2. Mở website, chọn **Tạo tài khoản** bằng `viet.vu@crowe.vn`, tự đặt mật khẩu rồi xác nhận email. Sau đó đăng nhập. Chưa có tài khoản/mật khẩu được tạo sẵn.
+3. Email trên đã được cấp `admin` trong `jobflow_members`. Người khác đăng ký Auth không tự có quyền đọc/sửa.
+4. Thêm nhân sự tại Supabase Table Editor → `jobflow_members`: email viết thường, role `editor` (xem/sửa) hoặc `viewer` (chỉ xem). Admin có cùng quyền dữ liệu với editor; chỉ người quản lý project Supabase được quản lý danh sách thành viên.
 
-- Dữ liệu thay đổi được lưu trong `localStorage` của từng trình duyệt và từng tên miền. Không có máy chủ cơ sở dữ liệu, đăng nhập thật hoặc phân quyền.
-- Tên người dùng/Administrator trong giao diện không phải cơ chế xác thực.
-- Máy khác, trình duyệt khác hoặc tên miền mới sẽ không tự thấy dữ liệu bạn đã sửa ở website cũ. Xóa dữ liệu trình duyệt có thể làm mất thay đổi.
-- Gói này gồm dữ liệu khởi tạo nằm trong code; không chứa các thay đổi chỉ có trong trình duyệt của bạn. Chức năng Export selected JSON hiện có chỉ xuất job được chọn, không phải sao lưu đầy đủ toàn hệ thống và chưa có quy trình nhập toàn bộ.
-- Các file frontend và dữ liệu khởi tạo có thể được người truy cập tải xuống. Bạn đã xác nhận công khai dữ liệu; vẫn nên rà soát trước khi đưa repo public. Repo private không làm dữ liệu frontend trên website công khai trở thành riêng tư.
-- Không có API key, mật khẩu hoặc thông tin xác thực Sites trong gói xuất. Không đưa secret/service-role key vào frontend hoặc GitHub.
+Supabase SMTP mặc định giới hạn gửi mail, thường chỉ gửi tới thành viên được phép của project. Khi mở rộng nhân sự cần SMTP riêng. Không tắt xác nhận email để chữa lỗi gửi mail. Không gửi mật khẩu cho người triển khai.
 
-## Cách nhanh nhất: GitHub + Netlify
+Netlify có thể vẫn yêu cầu đăng nhập team. Mở truy cập chỉ trong Visitor access của project này. Trang đăng nhập có thể công khai; dữ liệu Supabase chỉ dành cho thành viên được cấp quyền.
 
-1. Giải nén file ZIP.
-2. Tạo repository mới trên GitHub, ví dụ `jobflow-studio-viet`.
-3. Upload **nội dung bên trong thư mục `jobflow-github`** lên root repository: `public`, `scripts`, `tests`, `package.json`, `README.md`, `netlify.toml`, `vercel.json` và các file/thư mục dấu chấm nếu sử dụng. Không chỉ upload file ZIP; không lồng thêm thư mục `jobflow-github`.
-4. Netlify: chọn **Add new project → Import an existing project → GitHub**, cấp quyền cho đúng repo và chọn repo vừa tạo.
-5. Base directory: để trống. Build command: để trống. Publish directory: `public`. File `netlify.toml` đã khai báo thư mục này.
-6. Chọn Publish. Kiểm tra quyền truy cập dự án nếu muốn website công khai. Mỗi lần cập nhật nhánh triển khai trên GitHub, Netlify có thể tự phát hành lại.
+## Dữ liệu chung
 
-Nếu chỉ muốn kéo thả, dùng Netlify Drop và kéo **thư mục `public` đã giải nén**. Cách này không tự đồng bộ code từ GitHub.
+- Dữ liệu hoạt động đọc từ `jobflow_workspace`; không dùng dữ liệu localStorage và không tự seed khi máy chủ lỗi.
+- Đã nạp 28 job và dữ liệu liên quan từ bản Sites 29. Thay đổi chỉ nằm trong trình duyệt cũ chưa được chuyển.
+- Lưu toàn workspace dạng JSONB để giữ nguyên quan hệ job/phase/task/subtask/milestone/template/nhân sự. Phù hợp workspace nhỏ; chưa phải các bảng chuẩn hóa cho quy mô lớn.
+- Mỗi lần lưu kiểm tra revision; bản cũ không ghi đè bản mới. Lỗi mạng/xung đột sẽ chặn chỉnh sửa tiếp, cho tải bản thay đổi và tải lại dữ liệu máy chủ. File phục hồi dùng để đối chiếu; chưa có tự nhập/merge. Không hỗ trợ sửa offline.
+- Hộp thoại chờ máy chủ xác nhận mỗi lần lưu. Kiểm tra thay đổi mỗi 15 giây; bấm **Tải dữ liệu mới** và xác nhận để nhận bản mới. Không tự làm mất nội dung đang nhập.
+- Lịch sử job ghi email đăng nhập; database đóng dấu `updated_by`/thời gian lần lưu cuối. Lịch sử trong JSON chưa phải audit log chống chỉnh sửa.
+- Tài liệu vẫn nằm trong JSON dạng data URL. Giới hạn frontend 7,5 MB/toàn workspace, database 8 MB. Chưa dùng Supabase Storage.
+- SDK lưu phiên đăng nhập trong localStorage; workspace ở bộ nhớ. Code còn chứa dữ liệu mẫu đã được đồng ý công khai.
 
-Tài liệu chính thức: [Deploy từ repository](https://docs.netlify.com/start/quickstarts/deploy-from-repository/).
+## Chạy và triển khai
 
-## Vercel
-
-Import cùng repo vào Vercel, để Root Directory ở gốc repo. Chọn Framework Preset `Other`, Build Command `npm run build`, Output Directory `dist`. Cấu hình tương ứng đã có trong `vercel.json`. Không cần biến môi trường cho bản tĩnh này.
-
-[Cấu hình build Vercel](https://vercel.com/docs/builds/configure-a-build).
-
-## GitHub Pages
-
-Gói có `.github/workflows/pages.yml`. Bảo đảm upload cả file này (thư mục dấu chấm có thể bị ẩn trên máy). Trong repo: **Settings → Pages → Source: GitHub Actions**. Dùng nhánh `main`; nếu tên khác, sửa `branches` trong workflow. Sau khi bật Pages, chạy workflow từ tab Actions hoặc push một commit mới. Workflow xuất bản riêng thư mục `public`.
-
-Đường dẫn asset tương đối nên dùng được ở URL dạng `https://TEN-TAI-KHOAN.github.io/TEN-REPO/`. Khả năng dùng Pages cho repo private phụ thuộc gói tài khoản GitHub.
-
-[Workflow GitHub Pages](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
-
-## Chạy trên máy để sửa code
-
-Cài Node.js 22 trở lên. Mở terminal tại thư mục chứa `package.json`:
+Node.js 22 trở lên:
 
 ```sh
+npm ci
+npm run build
+npm test
 npm start
 ```
 
-Mở `http://localhost:3000`. Không cần `npm install` vì dự án không có thư viện npm phụ thuộc. Máy chủ này chỉ phục vụ kiểm tra cục bộ, không phải production server.
+Mở `http://localhost:3000`. Server local chỉ để kiểm tra. Thêm URL local vào Supabase Redirect URLs nếu dùng email redirect ở local.
 
-```sh
-npm test
-npm run build
-```
+Netlify: branch `main`, build `npm run build`, publish `public`. Build chép SDK Supabase khóa phiên bản từ node_modules vào `public/vendor/`. GitHub Pages và Vercel cũng cần build. Không chỉnh `dist/` hoặc vendor thủ công.
 
-`npm test` kiểm tra cú pháp và bộ kiểm tra logic kế thừa. Không thay thế kiểm thử trình duyệt, kiểm thử tải hay đánh giá bảo mật. `npm run build` chép bốn file frontend vào `dist` để đưa lên hosting tĩnh khác. Chỉnh code trong `public`, không chỉnh bản sao `dist`.
+`public/cloud-config.js` chứa URL và publishable key công khai. Không thêm service-role/secret key vào frontend/GitHub.
 
-## Supabase dùng để làm gì?
+`supabase/schema.sql` lưu DDL migration `jobflow_shared_workspace` đã áp dụng; không chạy lại trên database đã có bảng. Với project mới: áp dụng schema trên database trống, cập nhật email admin/cấu hình public, chạy `node scripts/export-seed.cjs`, nhập JSON sinh ra vào row id `main` bằng công cụ quản trị. Client không có quyền tự seed hoặc tự thêm thành viên.
 
-Gói này **chưa kết nối Supabase**. Upload code lên GitHub hoặc nhập URL/key Supabase không tự tạo cơ sở dữ liệu và đồng bộ.
+## Kiểm tra và giới hạn
 
-Hướng triển khai cho nhiều người: frontend trên Netlify/Vercel; backend dùng Supabase cho Auth, database và chính sách truy cập. Supabase không phải đích upload frontend của gói này; tài liệu cũng lưu ý custom domain không nhằm phục vụ hosting frontend qua Edge Functions.
+62 kiểm tra logic kế thừa và kiểm tra cloud bằng client giả lập. Kiểm tra database bằng transaction rollback: admin được đọc/ghi, outsider bị chặn, revision cũ không ghi, anon không có SELECT. Chưa kiểm thử email đăng nhập thực tế bằng hai tài khoản; cần người dùng xác nhận email và thử lưu trên hai trình duyệt. Chưa kiểm thử tải.
 
-Để chuyển thành hệ thống nhiều người dùng, cần một đợt phát triển riêng: thiết kế bảng jobs/phases/tasks/subtasks/milestones/clients/staff/templates/board views/history; xây dựng đăng nhập và quyền xem/sửa; bật Row Level Security; thay các hàm đọc/ghi localStorage bằng API; xử lý cập nhật đồng thời; nhập dữ liệu cũ có kiểm tra; sao lưu và kiểm thử bằng ít nhất hai tài khoản. Công khai quyền xem không đồng nghĩa cho phép người lạ sửa/xóa dữ liệu.
-
-[Giới hạn custom domain Supabase](https://supabase.com/docs/guides/platform/custom-domains).
-
-## Nội dung gói
-
-| Đường dẫn | Mục đích |
-| --- | --- |
-| `public/index.html` | Khung giao diện |
-| `public/styles.css` | Định dạng giao diện |
-| `public/app.js` | Logic và dữ liệu khởi tạo |
-| `public/staff-data.js` | Dữ liệu nhân sự khởi tạo |
-| `scripts/` | Chạy thử và tạo bản build |
-| `tests/audit.cjs` | Kiểm tra logic hiện có |
-| `netlify.toml`, `vercel.json` | Cấu hình hosting |
-| `.github/workflows/pages.yml` | Triển khai GitHub Pages |
-
-Các cập nhật Calendar deadline task/subtask và bộ lọc, cùng việc bỏ hai tab Client size criteria/Standard hours và các nội dung liên quan, được giữ theo bản đang công khai. Gói không chứa lịch sử Git hay cấu hình riêng của Sites.
+[Supabase Auth](https://supabase.com/docs/guides/auth/passwords) · [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security) · [Netlify](https://docs.netlify.com/start/quickstarts/deploy-from-repository/)
