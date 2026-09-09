@@ -492,13 +492,53 @@
       const searchMatch = jobSection === "board" || !jobSearchSelection || job.id===jobSearchSelection;
       const clientMatch = jobSection !== "calendar" || !calendarClientFilter || job.client === calendarClientFilter;
       const boardMatch = jobSection !== "board" || (jobMatchesBoardView(job,activeBoardView()) && (!boardClientFilter || job.client===boardClientFilter) && (boardDepartmentFilter==="All departments" || jobDepartment(job)===boardDepartmentFilter) && boardStepMatch(job,boardStepFilter));
-      return sectionMatch && filterMatch && quickMatch && searchMatch && clientMatch && boardMatch;
+      const templateMatch=!jobTemplateFilter || jobUsesTemplate(job,state.jobTemplates.find(t=>t.id===jobTemplateFilter));
+      return sectionMatch && filterMatch && quickMatch && searchMatch && clientMatch && boardMatch && templateMatch;
     });
   }
 
   function jobDepartment(job) {
     const names=[job.owner,...(job.team||[])];
     return names.map(name=>state.capacity.members.find(member=>member.name===name||member.shortName===name)?.department).find(Boolean) || "Unassigned";
+  }
+
+  let jobTemplateFilter = "";
+  function jobBoardStage(job) {
+    const selected=activeBoardView();
+    const template=state.jobTemplates.find(t=>jobUsesTemplate(job,t));
+    const view=(jobSection==="board"&&jobMatchesBoardView(job,selected)?selected:null)
+      ||state.boardViews?.find(v=>v.id===template?.boardViewId)
+      ||state.boardViews?.find(v=>jobMatchesBoardView(job,v));
+    return boardViewColumnForJob(view,job)?.name || job.status || "Not assigned";
+  }
+
+  function setBoardStage(job,step,view,reason="Moved Board step") {
+    const oldValue=job.status;
+    job.status=step.status;
+    job.boardStageStatus=step.status;
+    auditHistory(job,{source:"board",action:reason,entityType:"job",entityName:job.name,oldValue,newValue:step.status,text:`${job.id}: ${oldValue} → ${step.name} (${view.name})`});
+  }
+
+  function normalizeViewJobs(view,templateIds) {
+    const templates=state.jobTemplates.filter(t=>templateIds.includes(t.id));
+    const first=view.steps[0];
+    if(!first)return 0;
+    const scoped=state.jobs.filter(j=>templates.some(t=>jobUsesTemplate(j,t)));
+    const unmatched=scoped.filter(j=>!boardViewStepForStatus(view,j.status));
+    scoped.filter(j=>boardViewStepForStatus(view,j.status)).forEach(j=>{j.boardStageStatus=j.status;});
+    unmatched.forEach(j=>setBoardStage(j,first,view,"Assigned to first step of Board view"));
+    return unmatched.length;
+  }
+
+  function moveBoardJob(job,status) {
+    const view=activeBoardView();
+    const step=view?.steps.find(s=>s.visible&&s.status===status);
+    if(!job||!step||!jobMatchesBoardView(job,view))return false;
+    if(boardViewColumnForJob(view,job)?.id===step.id)return false;
+    if(!window.confirm(`Move ${job.id} — ${job.name}\nfrom “${boardViewColumnForJob(view,job)?.name||job.status}” to “${step.name}”?\n\nThis changes the Board stage. Phase and task progress will stay unchanged.`))return false;
+    setBoardStage(job,step,view);
+    if(!save())return false;
+    render("jobs");showToast(`${job.id} moved to ${step.name}.`);return true;
   }
 
   function boardStepMatch(job,step) {
@@ -647,7 +687,7 @@
     const filterControls = jobSection === "board"
       ? `<button class="button ghost board-view-button" data-select-board-view>${icon("board")}<span><small>View</small>${esc(boardView?.name||"Select view")}</span>${icon("chevron")}</button><select class="filter-select" id="board-department" aria-label="Filter Board by department"><option>All departments</option>${departments.map(department=>`<option ${boardDepartmentFilter===department?"selected":""}>${esc(department)}</option>`).join("")}</select><select class="filter-select" id="board-step" aria-label="Filter Board by step"><option>All steps</option>${boardSteps.map(step=>`<option value="${esc(step.status)}" ${boardStepFilter===step.status?"selected":""}>${esc(step.name)}</option>`).join("")}</select>`
       : `<select class="filter-select" id="job-status" aria-label="Filter by status">${["All statuses","Planning","In progress","Review","On hold","Complete","Cancelled"].map(s => `<option ${s === jobFilter ? "selected" : ""}>${s}</option>`).join("")}</select>`;
-    const listTools = `<div class="toolbar job-toolbar"><div class="quick-filters">${[["all","All"],["starting","Starting soon"],["due","Due this week"],["overdue","Overdue"]].map(([key,label])=>`<button class="quick-filter ${jobQuickFilter===key?"active":""}" data-job-quick="${key}">${label}<span>${counts[key]}</span></button>`).join("")}</div>${searchControl}${clientFilterChip}${filterControls}<button class="button ghost" data-display-options>${icon("filter")}Display options</button><span class="toolbar-spacer"></span><span class="date-chip">${jobs.length} jobs</span></div>`;
+    const listTools = `<div class="toolbar job-toolbar"><div class="quick-filters">${[["all","All"],["starting","Starting soon"],["due","Due this week"],["overdue","Overdue"]].map(([key,label])=>`<button class="quick-filter ${jobQuickFilter===key?"active":""}" data-job-quick="${key}">${label}<span>${counts[key]}</span></button>`).join("")}</div>${searchControl}${clientFilterChip}${filterControls}<select class="filter-select" id="job-template-filter" aria-label="Filter jobs by Template"><option value="">All templates</option>${state.jobTemplates.map(t=>`<option value="${esc(t.id)}" ${jobTemplateFilter===t.id?"selected":""}>${esc(t.name)}</option>`).join("")}</select><button class="button ghost" data-display-options>${icon("filter")}Display options</button><span class="toolbar-spacer"></span><span class="date-chip">${jobs.length} jobs</span></div>`;
     let body = `<section class="card table-card">${jobsTable(jobs)}</section>`;
     if (jobSection === "board") body = renderKanban(jobs);
     if (jobSection === "calendar") body = renderJobCalendar(jobs);
@@ -1219,7 +1259,7 @@
     const ids=[...form.querySelectorAll('[name="templateIds"]:checked')].map(input=>input.value);
     const templates=state.jobTemplates.filter(template=>ids.includes(template.id));
     const jobs=state.jobs.filter(job=>templates.some(template=>jobUsesTemplate(job,template)));
-    summary.innerHTML=`<strong>${jobs.length} jobs</strong><span>from ${templates.length} selected template${templates.length===1?"":"s"} will appear in this view.</span>`;
+    summary.innerHTML=`<strong>${jobs.length} jobs</strong><span>from ${templates.length} selected template${templates.length===1?"":"s"} will appear in this view. When saved, jobs whose status does not match any step will move to step 1.</span>`;
   }
 
   function renderBoardViewEditor() {
@@ -1352,7 +1392,7 @@
   document.addEventListener("input",event=>{if(event.target.closest("#template-editor"))readTemplateDraft();});
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="template"],#job-form [name="start"]'))updateTemplatePreview(true);if(event.target.matches('#board-view-form [name="templateIds"]')){readBoardViewDraft();updateBoardViewScopeSummary();event.target.closest("label")?.querySelector("b")?.replaceChildren(event.target.checked?"Included":"Add");}});
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="recurring"],#job-info-form [name="recurring"]'))updateRecurringFields(event.target.form);});
-  document.addEventListener("submit",event=>{if(event.target.id!=="board-view-form")return;event.preventDefault();readBoardViewDraft();const previous=state.boardViews.find(view=>view.id===boardViewDraft.id),name=boardViewDraft.name.trim(),steps=boardViewDraft.steps.map(step=>{const savedStep=previous?.steps.find(item=>item.id===step.id),stepName=step.name.trim();return {...step,name:stepName,status:savedStep&&savedStep.name===stepName?savedStep.status:stepName};});if(!name){showToast("Enter a view name.");return;}if(state.boardViews.some(view=>view.id!==boardViewDraft.id&&view.name.trim().toLowerCase()===name.toLowerCase())){showToast("A Board view with this name already exists.");return;}if(!boardViewDraft.templateIds.length){showToast("Select at least one template so the view can display jobs.");return;}if(!steps.length||steps.some(step=>!step.name)){showToast("Each view needs at least one named step.");return;}if(new Set(steps.map(step=>step.name.toLowerCase())).size!==steps.length){showToast("Step names must be unique within a view.");return;}if(!steps.some(step=>step.visible)){showToast("Choose at least one step to display.");return;}const copy={id:boardViewDraft.id,name,isDefault:Boolean(boardViewDraft.isDefault),steps};if(previous){const templates=boardViewTemplates(previous);for(const oldStep of previous.steps){const next=steps.find(step=>step.id===oldStep.id);if(next&&next.status!==oldStep.status)state.jobs.filter(job=>templates.some(template=>jobUsesTemplate(job,template))).forEach(job=>{if(boardViewStepForStatus({steps:[oldStep]},job.status))job.status=next.status;});}}const index=state.boardViews.findIndex(view=>view.id===copy.id);if(index<0)state.boardViews.push(copy);else state.boardViews[index]=copy;if(copy.isDefault)state.boardViews.forEach(view=>{if(view.id!==copy.id)view.isDefault=false;});if(!state.boardViews.some(view=>view.isDefault))copy.isDefault=true;state.jobTemplates.forEach(template=>{if(boardViewDraft.templateIds.includes(template.id))template.boardViewId=copy.id;else if(template.boardViewId===copy.id)template.boardViewId="";});selectedBoardViewId=copy.id;boardStepFilter="All steps";boardViewDraft=null;if(!save())return;$("#audit-panel")?.remove();render(currentView);showToast(`${copy.name} saved.`);});
+  document.addEventListener("submit",event=>{if(event.target.id!=="board-view-form")return;event.preventDefault();readBoardViewDraft();const previous=state.boardViews.find(view=>view.id===boardViewDraft.id),name=boardViewDraft.name.trim(),steps=boardViewDraft.steps.map(step=>{const savedStep=previous?.steps.find(item=>item.id===step.id),stepName=step.name.trim();return {...step,name:stepName,status:savedStep&&savedStep.name===stepName?savedStep.status:stepName};});if(!name){showToast("Enter a view name.");return;}if(state.boardViews.some(view=>view.id!==boardViewDraft.id&&view.name.trim().toLowerCase()===name.toLowerCase())){showToast("A Board view with this name already exists.");return;}if(!boardViewDraft.templateIds.length){showToast("Select at least one template so the view can display jobs.");return;}if(!steps.length||steps.some(step=>!step.name)){showToast("Each view needs at least one named step.");return;}if(new Set(steps.map(step=>step.name.toLowerCase())).size!==steps.length){showToast("Step names must be unique within a view.");return;}if(!steps.some(step=>step.visible)){showToast("Choose at least one step to display.");return;}if(!steps[0].visible){showToast("The first step must be visible so newly assigned jobs can appear there.");return;}const copy={id:boardViewDraft.id,name,isDefault:Boolean(boardViewDraft.isDefault),steps};if(previous){const templates=boardViewTemplates(previous);for(const oldStep of previous.steps){const next=steps.find(step=>step.id===oldStep.id);if(next&&next.status!==oldStep.status)state.jobs.filter(job=>templates.some(template=>jobUsesTemplate(job,template))).forEach(job=>{if(boardViewStepForStatus({steps:[oldStep]},job.status)){job.status=next.status;if(job.boardStageStatus===oldStep.status)job.boardStageStatus=next.status;}});}}const index=state.boardViews.findIndex(view=>view.id===copy.id);if(index<0)state.boardViews.push(copy);else state.boardViews[index]=copy;if(copy.isDefault)state.boardViews.forEach(view=>{if(view.id!==copy.id)view.isDefault=false;});if(!state.boardViews.some(view=>view.isDefault))copy.isDefault=true;state.jobTemplates.forEach(template=>{if(boardViewDraft.templateIds.includes(template.id))template.boardViewId=copy.id;else if(template.boardViewId===copy.id)template.boardViewId="";});normalizeViewJobs(copy,boardViewDraft.templateIds);selectedBoardViewId=copy.id;boardStepFilter="All steps";boardViewDraft=null;if(!save())return;$("#audit-panel")?.remove();render(currentView);showToast(`${copy.name} saved.`);});
   document.addEventListener("submit",event=>{if(event.target.id!=="template-board-view-form")return;event.preventDefault();const data=new FormData(event.target);state.jobTemplates.forEach(template=>{template.boardViewId=String(data.get(`template-${template.id}`)||"");});if(!save())return;render("settings");showToast("Template Board views saved.");});
   document.addEventListener("submit",event=>{if(event.target.id!=="template-editor")return;event.preventDefault();readTemplateDraft();const error=validateTemplate(templateDraft);if(error){showToast(error);return;}const copy=structuredClone(templateDraft);copy.name=copy.name.trim();const index=state.jobTemplates.findIndex(t=>t.id===copy.id);if(index<0)state.jobTemplates.push(copy);else state.jobTemplates[index]=copy;if(!save())return;setTemplateDraft(structuredClone(copy));render("settings");showToast("Template saved for future jobs.");});
   document.addEventListener("submit",event=>{if(event.target.id!=="staff-form")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.target)),required=["staffId","fullName","shortName","rank","department","role"];for(const field of required)data[field]=String(data[field]||"").trim();if(required.some(field=>!data[field])){showToast("Complete all staff fields.");return;}const duplicate=state.capacity.members.find(member=>member.id!==data.id&&(member.shortName.toLowerCase()===data.shortName.toLowerCase()||member.staffId.toLowerCase()===data.staffId.toLowerCase()));if(duplicate){showToast("Staff ID and short name must be unique.");return;}const targetUtilization=Number(data.targetUtilization);if(!Number.isFinite(targetUtilization)||targetUtilization<1||targetUtilization>150){showToast("Target utilization must be between 1% and 150%.");return;}let member=state.capacity.members.find(item=>item.id===data.id);if(member){const previous=member.shortName;Object.assign(member,{staffId:data.staffId,fullName:data.fullName,shortName:data.shortName,name:data.shortName,rank:data.rank,department:data.department,team:data.department,role:data.role,targetUtilization,code:staffCode(data.shortName)});if(previous!==data.shortName){state.jobs.forEach(job=>{if(job.owner===previous)job.owner=data.shortName;if(job.team)job.team=job.team.map(name=>name===previous?data.shortName:name);});state.timeline.projects.forEach(project=>project.items.forEach(item=>{if(item.owner===previous)item.owner=data.shortName;}));state.recurring.forEach(item=>{if(item.owner===previous)item.owner=data.shortName;});}}else{member={id:crypto.randomUUID(),staffId:data.staffId,fullName:data.fullName,shortName:data.shortName,name:data.shortName,rank:data.rank,department:data.department,team:data.department,role:data.role,targetUtilization,code:staffCode(data.shortName),email:"",weeklyHours:40,workDays:[1,1,1,1,1],allocations:[],leaves:[]};state.capacity.members.push(member);}state.capacity.unassigned.forEach(queue=>{const task=findTimelineItem(queue.jobId,queue.taskId).item;if(task?.owner===member.shortName)queue.team=member.department;});if(!save())return;refreshStaffSelects();$("#audit-panel")?.remove();render("settings");showToast(data.id?"Staff information updated.":"Staff member added.");});
@@ -1399,7 +1439,7 @@
       <article class="overview-card"><span>Work breakdown</span><div class="time-value">${job.tasks.length}<small> tasks</small></div><div class="profit-key"><span>${subtaskCount} sub-tasks</span><span>${checkCount} checklist items</span></div></article>
       <article class="overview-card margin-card"><span>Due date</span><strong>${shortDate(job.due)}</strong><small class="${remainingDays===0?"danger-text":"on-track"}">${remainingDays} days remaining</small></article>
     </section><div class="job-stat-strip"><div><span>Phases</span><strong>${project.items.filter(item=>item.type==="phase").length}</strong></div><div><span>Team members</span><strong>${job.team.length}</strong></div><div><span>Remaining tasks</span><strong>${remainingTasks}</strong></div><div><span>Remaining days</span><strong>${remainingDays}</strong></div></div>
-    <div class="section-title"><h3>Job information</h3><span class="save-hint">Edit fields and save changes</span></div><form class="job-info-form" id="job-info-form"><input type="hidden" name="jobId" value="${job.id}"><label>Client<input name="client" value="${esc(job.client)}" required></label><label>Client size<select name="clientSize">${["Large","Medium","Small"].map(size=>`<option ${size===job.clientSize?"selected":""}>${size}</option>`).join("")}</select></label><label>Contact<input name="contact" value="${esc(job.contact)}"></label><label>Job name<input name="name" value="${esc(job.name)}" required></label><label>Client order number<input name="orderNo" value="${esc(job.orderNo)}"></label><label>Owner<select name="owner">${state.capacity.members.map(m=>`<option ${m.name===job.owner?"selected":""}>${esc(m.name)}</option>`).join("")}</select></label><label>Priority<select name="priority">${["low","medium","high"].map(p=>`<option ${p===job.priority?"selected":""}>${p}</option>`).join("")}</select></label><label>Start date<input type="date" name="start" value="${esc(job.start)}" required></label><label>Due date<input type="date" name="due" value="${esc(job.due)}" required></label><label>Start reminder<input type="date" name="startReminder" value="${esc(job.startReminder)}" required></label><label>Next deadline review<input type="date" name="deadlineReviewDate" value="${esc(job.deadlineReviewDate)}" required></label><label>Current stage<input value="${esc(jobStage(job))}" readonly></label><label>Template<input value="${esc(job.template||"Blank job")}" readonly><input type="hidden" name="template" value="${esc(job.template||"Blank job")}"></label><label>Budget (USD)<input type="number" name="budget" min="0" step="100" value="${job.budget}"></label><label>Recorded cost (USD)<input name="spent" type="number" min="0" step="0.01" value="${job.spent}"></label><label>Invoiced total (USD)<input name="billed" type="number" min="0" step="0.01" value="${job.billed}"></label><label>Forecast cost / hour (USD)<input name="costRate" type="number" min="0" step="0.01" value="${job.costRate??145}"></label><label class="field-wide recurring-check"><input type="checkbox" name="recurring" ${job.recurring?"checked":""}> Recurring job</label><label class="recurring-dependent">Frequency<select name="recurringCadence" ${job.recurring?"":"disabled"}>${["Weekly","Monthly","Quarterly","Annually"].map(value=>`<option ${value===(job.recurringCadence||"Monthly")?"selected":""}>${value}</option>`).join("")}</select></label><label class="recurring-dependent">Next occurrence<input type="date" name="nextOccurrence" value="${esc(job.nextOccurrence||job.start)}" ${job.recurring?"":"disabled"}></label><label class="field-wide">Description<textarea name="description" rows="3">${esc(job.description)}</textarea></label><div class="field-wide form-actions-inline"><button class="button primary" type="submit">Save job information</button></div></form>`;
+    <div class="section-title"><h3>Job information</h3><span class="save-hint">Edit fields and save changes</span></div><form class="job-info-form" id="job-info-form"><input type="hidden" name="jobId" value="${job.id}"><label>Client<input name="client" value="${esc(job.client)}" required></label><label>Client size<select name="clientSize">${["Large","Medium","Small"].map(size=>`<option ${size===job.clientSize?"selected":""}>${size}</option>`).join("")}</select></label><label>Contact<input name="contact" value="${esc(job.contact)}"></label><label>Job name<input name="name" value="${esc(job.name)}" required></label><label>Client order number<input name="orderNo" value="${esc(job.orderNo)}"></label><label>Owner<select name="owner">${state.capacity.members.map(m=>`<option ${m.name===job.owner?"selected":""}>${esc(m.name)}</option>`).join("")}</select></label><label>Priority<select name="priority">${["low","medium","high"].map(p=>`<option ${p===job.priority?"selected":""}>${p}</option>`).join("")}</select></label><label>Start date<input type="date" name="start" value="${esc(job.start)}" required></label><label>Due date<input type="date" name="due" value="${esc(job.due)}" required></label><label>Start reminder<input type="date" name="startReminder" value="${esc(job.startReminder)}" required></label><label>Next deadline review<input type="date" name="deadlineReviewDate" value="${esc(job.deadlineReviewDate)}" required></label><label>Current Phase<input value="${esc(jobStage(job))}" readonly></label><label>Current Stage<input value="${esc(jobBoardStage(job))}" readonly></label><label>Template<input value="${esc(job.template||"Blank job")}" readonly><input type="hidden" name="template" value="${esc(job.template||"Blank job")}"></label><label>Budget (USD)<input type="number" name="budget" min="0" step="100" value="${job.budget}"></label><label>Recorded cost (USD)<input name="spent" type="number" min="0" step="0.01" value="${job.spent}"></label><label>Invoiced total (USD)<input name="billed" type="number" min="0" step="0.01" value="${job.billed}"></label><label>Forecast cost / hour (USD)<input name="costRate" type="number" min="0" step="0.01" value="${job.costRate??145}"></label><label class="field-wide recurring-check"><input type="checkbox" name="recurring" ${job.recurring?"checked":""}> Recurring job</label><label class="recurring-dependent">Frequency<select name="recurringCadence" ${job.recurring?"":"disabled"}>${["Weekly","Monthly","Quarterly","Annually"].map(value=>`<option ${value===(job.recurringCadence||"Monthly")?"selected":""}>${value}</option>`).join("")}</select></label><label class="recurring-dependent">Next occurrence<input type="date" name="nextOccurrence" value="${esc(job.nextOccurrence||job.start)}" ${job.recurring?"":"disabled"}></label><label class="field-wide">Description<textarea name="description" rows="3">${esc(job.description)}</textarea></label><div class="field-wide form-actions-inline"><button class="button primary" type="submit">Save job information</button></div></form>`;
   }
 
   function renderJobPhases(job) {
@@ -1675,9 +1715,10 @@
     const work = project.items.filter(item=>item.type==="task");
     const job = getJob(project.jobId);
     if (!job) return;
-    if (!work.length) {job.progress=0;if(job.status==="Complete")job.status="Planning";return;}
+    if (!work.length) {job.progress=0;if(job.status==="Complete"&&job.boardStageStatus!==job.status)job.status="Planning";return;}
     const progress = Math.round(work.reduce((sum,item)=>sum+item.progress,0)/work.length);
     job.progress = progress;
+    if(job.boardStageStatus===job.status)return;
     if (progress === 100 && job.status!=="Cancelled") job.status = "Complete";
     else if (job.status === "Complete") job.status=progress>0?"In progress":"Planning";
     else if (progress > 0 && job.status === "Planning") job.status = "In progress";
@@ -2111,6 +2152,7 @@
 
   document.addEventListener("change", event => {
     if (event.target.matches("#job-status")) { jobFilter = event.target.value; render("jobs"); }
+    if(event.target.matches("#job-template-filter")) {jobTemplateFilter=event.target.value;render("jobs");}
     if (event.target.matches("#calendar-event-filter")) { calendarEventFilter=event.target.value; render("jobs"); }
     if (event.target.matches("#board-department")) { boardDepartmentFilter=event.target.value; render("jobs"); }
     if (event.target.matches("#board-step")) { boardStepFilter=event.target.value; render("jobs"); }
@@ -2320,10 +2362,7 @@
     event.preventDefault();
     const job = getJob(event.dataTransfer.getData("text/plain"));
     if (!job) return;
-    job.status = column.dataset.status;
-    if (job.status === "Complete") {job.progress = 100;ensureJobPhaseHierarchy(job).items.forEach(i=>{i.progress=100;i.status="Complete";});}
-    auditHistory(job);
-    if(!save())return; render("jobs"); showToast(`${job.id} moved to ${job.status}.`);
+    moveBoardJob(job,column.dataset.status);
   });
 
   document.addEventListener("submit", event => {
