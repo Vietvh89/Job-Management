@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#10202f" />
+  <meta name="description" content="JobFlow brings jobs, phases, tasks, sub-tasks, checklists, staff capacity, and schedules into one focused workspace." />
+  <title>JobFlow — Job management workspace</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></symbol>
+    <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18M9 12v2h6v-2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></symbol>
+    <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l4-2 4 2 4-2 4 2V2l-4 2-4-2-4 2z"/><path d="M8 9h8M8 13h8M8 17h5"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7v5l-4 2v-7z"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="10" rx="1"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark">J</span><span>JobFlow</span></div>
+      <div class="workspace-switch"><span class="avatar avatar-small">N</span><div><strong>Northstar Studio</strong><small>Professional plan</small></div><svg class="icon"><use href="#i-chevron"/></svg></div>
+      <nav class="main-nav" aria-label="Primary navigation">
+        <button class="nav-item active" data-view="dashboard"><svg class="icon"><use href="#i-grid"/></svg><span>Overview</span></button>
+        <button class="nav-item" data-view="jobs"><svg class="icon"><use href="#i-briefcase"/></svg><span>Jobs</span><span class="nav-count" id="jobs-count">8</span></button>
+        <button class="nav-item" data-view="schedule"><svg class="icon"><use href="#i-calendar"/></svg><span>Schedule</span></button>
+        <button class="nav-item" data-view="clients"><svg class="icon"><use href="#i-users"/></svg><span>Clients</span></button>
+        <div class="nav-label">Administration</div>
+        <button class="nav-item" data-view="settings"><svg class="icon"><use href="#i-list"/></svg><span>Settings</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <button class="help-card" id="help-btn"><span class="help-icon">?</span><span><strong>Need a hand?</strong><small>Open the quick guide</small></span></button>
+        <div class="profile"><span class="avatar">AM</span><div><strong>Alex MNYO</strong><small>Administrator</small></div><button class="icon-btn" aria-label="Profile menu"><svg class="icon"><use href="#i-more"/></svg></button></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="mobile-menu icon-btn" id="menu-btn" aria-label="Open navigation"><svg class="icon"><use href="#i-menu"/></svg></button>
+        <div class="top-actions">
+          <button class="icon-btn notification" id="notification-btn" aria-label="Notifications"><svg class="icon"><use href="#i-bell"/></svg><span></span></button>
+        </div>
+      </header>
+
+      <div class="content" id="view-root"></div>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="job-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="new-job-title">
+      <div class="modal-head"><div><p class="eyebrow">Create</p><h2 id="new-job-title">New job</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="job-form">
+        <label>Job name<input name="name" required placeholder="e.g. Brand identity refresh" /></label>
+        <div class="form-row"><label>Client<select name="client" required><option value="">Select a client</option><option>Acme Design PZBW</option><option>Atlas UEMO</option><option>Greenleaf KERI</option><option>Harbour RKGO</option><option>Luma AYTN</option></select></label><label>Job owner<select name="owner"><option>MNYO</option><option>EFUN</option><option>ZBBA</option><option>WEPH</option></select></label></div>
+        <div class="form-row"><label>Start date<input type="date" name="start" value="2026-09-07" required /></label><label>Due date<input type="date" name="due" value="2026-10-02" required /></label></div>
+        <div class="form-row"><label>Client size<select name="clientSize"><option>Large</option><option selected>Medium</option><option>Small</option></select></label><label>Start reminder<input type="date" name="startReminder" value="2026-09-07" required /></label></div>
+        <label>Template<select name="template"><option>Blank job</option><option>Brand project</option><option>Consulting engagement</option><option>Website delivery</option><option>Monthly retainer</option></select></label>
+        <label class="recurring-check"><input type="checkbox" name="recurring" /> Recurring job</label>
+        <div class="form-row recurring-job-options" hidden><label>Frequency<select name="recurringCadence"><option>Weekly</option><option selected>Monthly</option><option>Quarterly</option><option>Annually</option></select></label><label>Next occurrence<input type="date" name="nextOccurrence" value="2026-10-01" /></label></div>
+        <label>First milestone<input name="milestone" placeholder="e.g. Client review" /></label>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Create job</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="search-modal" hidden>
+    <section class="search-modal" role="dialog" aria-modal="true" aria-label="Search">
+      <div class="command-input"><svg class="icon"><use href="#i-search"/></svg><input id="global-search" placeholder="Search anything…" autocomplete="off" /><kbd>ESC</kbd></div>
+      <div id="search-results" class="search-results"></div>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="allocation-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="allocation-title">
+      <div class="modal-head"><div><p class="eyebrow">Capacity plan</p><h2 id="allocation-title">Assign work</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="allocation-form">
+        <label>Unassigned task<select name="task" id="allocation-task" required></select></label>
+        <div class="form-row"><label>Team member<select name="member" id="allocation-member" required></select></label><label>Day<select name="day" required><option value="0">Monday, Sep 7</option><option value="1">Tuesday, Sep 8</option><option value="2">Wednesday, Sep 9</option><option value="3">Thursday, Sep 10</option><option value="4">Friday, Sep 11</option></select></label></div>
+        <label>Planned hours<input type="number" name="hours" value="4" min="0.5" max="12" step="0.5" required /></label>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Assign task</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="time-off-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="time-off-title">
+      <div class="modal-head"><div><p class="eyebrow">Availability</p><h2 id="time-off-title">Add time off</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="time-off-form">
+        <div class="form-row"><label>Team member<select name="member" id="time-off-member" required></select></label><label>Day<select name="day" required><option value="0">Monday, Sep 7</option><option value="1">Tuesday, Sep 8</option><option value="2">Wednesday, Sep 9</option><option value="3">Thursday, Sep 10</option><option value="4">Friday, Sep 11</option></select></label></div>
+        <div class="form-row"><label>Hours<input type="number" name="hours" value="8" min="0.5" max="12" step="0.5" required /></label><label>Reason<select name="reason"><option>Annual leave</option><option>Training</option><option>Internal meeting</option><option>Public holiday</option></select></label></div>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Add to plan</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="capacity-settings-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="capacity-settings-title">
+      <div class="modal-head"><div><p class="eyebrow">Planner settings</p><h2 id="capacity-settings-title">Capacity rules</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="capacity-settings-form">
+        <div class="form-row"><label>Under-utilised below (%)<input type="number" name="under" min="1" max="99" required /></label><label>Overloaded above (%)<input type="number" name="over" min="50" max="200" required /></label></div>
+        <label>Allocation colours<select name="colorMode"><option value="capacity">Show capacity status</option><option value="workType">Show billable vs non-billable</option></select></label>
+        <div class="working-hours" id="working-hours-fields"></div>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Save settings</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="schedule-item-modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="schedule-item-title">
+      <div class="modal-head"><div><p class="eyebrow">Project timeline</p><h2 id="schedule-item-title">Add phase, task or milestone</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="schedule-item-form">
+        <div class="form-row"><label>Job<select name="project" id="schedule-project" required></select></label><label>Item type<select name="type"><option value="task">Task</option><option value="phase">Project phase</option><option value="milestone">Milestone</option></select></label></div>
+        <label>Name<input name="name" required placeholder="e.g. Client design review" /></label>
+        <div class="form-row"><label>Owner<select name="owner" id="schedule-owner" required></select></label><label>Start date<input type="date" name="start" value="2026-09-14" required /></label></div>
+        <div class="form-row"><label>Duration (calendar days)<input type="number" name="duration" value="5" min="1" max="42" required /></label><label>Depends on<select name="dependency" id="schedule-dependency"><option value="">No dependency</option></select></label></div>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Add to schedule</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="phase-modal" hidden>
+    <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="phase-modal-title">
+      <div class="modal-head"><div><p class="eyebrow">Job phases</p><h2 id="phase-modal-title">Create a new phase</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="phase-form">
+        <input type="hidden" name="jobId" id="phase-job-id" />
+        <label>Phase name<input name="name" required placeholder="e.g. Planning and discovery" /></label>
+        <div class="form-row"><label>Owner<select name="owner" id="phase-owner" required><option>MNYO</option><option>EFUN</option><option>ZBBA</option><option>WEPH</option></select></label><label>Start date<input type="date" name="start" id="phase-start" required /></label></div>
+        <label>Duration (calendar days)<input type="number" name="duration" value="5" min="1" max="120" required /></label>
+        <p class="form-note">The phase will be created as a parent heading. Add its child tasks from the Phases tab.</p>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Create phase</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="phase-task-modal" hidden>
+    <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="phase-task-modal-title">
+      <div class="modal-head"><div><p class="eyebrow">Child task</p><h2 id="phase-task-modal-title">Add task to phase</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="phase-task-form">
+        <input type="hidden" name="jobId" id="phase-task-job-id" />
+        <input type="hidden" name="phaseId" id="phase-task-phase-id" />
+        <p class="phase-modal-parent">Parent phase: <strong id="phase-task-parent-name"></strong></p>
+        <label>Task name<input name="name" required placeholder="e.g. Prepare project brief" /></label>
+        <div class="form-row"><label>Owner<select name="owner" id="phase-task-owner" required><option>MNYO</option><option>EFUN</option><option>ZBBA</option><option>WEPH</option></select></label><label>Deadline<input type="date" name="due" id="phase-task-due" required /></label></div>
+        <label>Estimated hours<input type="number" name="hours" value="8" min="1" max="500" required /></label>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Add task</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="milestone-modal" hidden>
+    <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="milestone-modal-title">
+      <div class="modal-head"><div><p class="eyebrow">Job deadline</p><h2 id="milestone-modal-title">Add milestone</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="milestone-form">
+        <input type="hidden" name="jobId" id="milestone-job-id" />
+        <label>Milestone name<input name="name" required placeholder="e.g. Client approval" /></label>
+        <label>Deadline date<input type="date" name="date" id="milestone-date" required /></label>
+        <p class="form-note">The deadline will be added to both the job milestones and project schedule.</p>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Add milestone</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="schedule-columns-modal" hidden>
+    <section class="modal compact-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-columns-title">
+      <div class="modal-head"><div><p class="eyebrow">Display</p><h2 id="schedule-columns-title">Timeline columns</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
+      <form id="schedule-columns-form">
+        <p class="form-note">Choose the information shown beside each task.</p>
+        <label class="check-row"><input type="checkbox" name="owner" /> Assigned staff</label>
+        <label class="check-row"><input type="checkbox" name="status" /> Task status</label>
+        <label class="check-row"><input type="checkbox" name="progress" /> Progress</label>
+        <div class="modal-actions"><button type="button" class="button ghost" data-close-modal>Cancel</button><button class="button primary" type="submit">Apply columns</button></div>
+      </form>
+    </section>
+  </div>
+
+  <aside class="detail-drawer" id="detail-drawer" aria-hidden="true">
+    <div class="drawer-head"><button class="icon-btn" id="close-drawer" aria-label="Close details"><svg class="icon"><use href="#i-x"/></svg></button></div>
+    <div id="drawer-content"></div>
+  </aside>
+  <div class="drawer-scrim" id="drawer-scrim" hidden></div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="./staff-data.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
