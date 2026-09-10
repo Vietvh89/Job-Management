@@ -141,13 +141,6 @@
       else await loadWorkspace(data.session);
     }catch(error){message(error.message||'Không đăng nhập được.');}finally{busy(false);}
   });
-  $('cloud-signup').onclick=async()=>{
-    if(!client||!form.reportValidity())return;busy(true);message('Đang tạo tài khoản…');
-    try {const {data,error}=await client.auth.signUp({email:form.elements.email.value.trim(),password:form.elements.password.value,options:{emailRedirectTo:location.origin+'/'}});
-      if(error)throw error;form.elements.password.value='';
-      if(data.session)await loadWorkspace(data.session);else message('Kiểm tra email và xác nhận tài khoản, sau đó quay lại đây đăng nhập. Nếu chưa nhận email, liên hệ quản trị viên kiểm tra cấu hình gửi mail.');
-    }catch(error){message(error.message||'Không tạo được tài khoản.');}finally{busy(false);}
-  };
   try {
     if(!window.supabase?.createClient)throw new Error('Không tải được thư viện đăng nhập.');
     client=window.supabase.createClient(window.JOBFLOW_CONFIG.url,window.JOBFLOW_CONFIG.publishableKey,{db:{retry:false},auth:{storageKey:'jobflow-supabase-auth',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
