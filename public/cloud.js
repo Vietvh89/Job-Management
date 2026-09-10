@@ -102,7 +102,7 @@
         $('cloud-status').textContent='Đang lưu…';
         void persist(payload);return true;
       }};
-      const script=document.createElement('script');script.src='./app.js?v=20260910-staff-save-3';
+      const script=document.createElement('script');script.src='./app.js?v=20260910-staff-save-4';
       await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=()=>reject(new Error('Không tải được ứng dụng.'));document.body.appendChild(script);});
       loaded=true;$('cloud-auth').hidden=true;document.body.classList.remove('cloud-locked');
       $('cloud-bar').hidden=false;$('cloud-user').textContent=membership.email+' · '+membership.role;
@@ -150,7 +150,7 @@
   };
   try {
     if(!window.supabase?.createClient)throw new Error('Không tải được thư viện đăng nhập.');
-    client=window.supabase.createClient(window.JOBFLOW_CONFIG.url,window.JOBFLOW_CONFIG.publishableKey,{auth:{storageKey:'jobflow-supabase-auth',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+    client=window.supabase.createClient(window.JOBFLOW_CONFIG.url,window.JOBFLOW_CONFIG.publishableKey,{db:{retry:false},auth:{storageKey:'jobflow-supabase-auth',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
     client.auth.onAuthStateChange((event,session)=>{
       if(event==='SIGNED_OUT'&&loaded){requestLogin('Phiên đăng nhập đã hết hạn. Đăng nhập lại để giữ nguyên nội dung đang nhập.');}
       else if(session&&loaded&&session.user.email?.toLowerCase()!==activeEmail)location.reload();
