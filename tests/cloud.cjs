@@ -25,6 +25,8 @@ async function setup(options={}) {
 }
 (async()=>{
   let app=await setup();assert.equal(app.appLoads,1);assert.ok(app.window.JOBFLOW_CLOUD.initialState);assert.equal(app.clientOptions.db.retry,false);
+  assert.equal(fs.readFileSync('public/index.html','utf8').includes('cloud-signup'),false);
+  assert.equal(fs.readFileSync('public/cloud.js','utf8').includes('.auth.signUp('),false);
   assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),true);assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),false);await flush();assert.equal(app.writes.length,1);assert.equal(app.writes[0].revision,1);assert.equal(app.writes[0].accessVersion,1);assert.equal(app.nodes.get('cloud-saving').open,false);
   app=await setup({conflict:true});app.window.JOBFLOW_CLOUD.save({jobs:[]});await flush();assert.equal(app.nodes.get('cloud-saving').open,true);assert.equal(app.nodes.get('cloud-recovery').hidden,false);assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),false);
   app=await setup({error:true});app.window.JOBFLOW_CLOUD.save({jobs:[]});await flush();assert.equal(app.nodes.get('cloud-recovery').hidden,false);assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),false);
