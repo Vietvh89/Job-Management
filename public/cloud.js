@@ -6,8 +6,8 @@
   let revision = 0, pendingPayload = null, activeEmail = '';
   let pollTimer;
   let polling=false;
-  const accessDenied = error => error?.code==='42501'||error?.code==='PGRST301'||error?.status===401||error?.status===403;
-  function lockAccess(text){
+  const authError = error => error?.code==='PGRST301'||error?.status===401;
+  function requestLogin(text){
     blocked=true;
     document.body.classList.add('cloud-locked');$('cloud-auth').hidden=false;message(text);
   }
@@ -60,8 +60,18 @@
           if(saving||blocked)throw new Error('Vui lòng chờ thay đổi hiện tại được lưu.');
           saving=true;
           try{
-            const {data,error}=await client.rpc('jobflow_save_staff',{args:{member,groupId,revision}}).abortSignal(AbortSignal.timeout(25000));
-            if(error)throw error;
+            let response=await client.rpc('jobflow_save_staff',{args:{member,groupId,revision}}).abortSignal(AbortSignal.timeout(25000));
+            if(response.error?.code==='40001'){
+              const fresh=await api('load');revision=fresh.revision;
+              Object.assign(this,{groups:fresh.groups||[],members:fresh.members||[],permissions:fresh.permissions,accessVersion:fresh.accessVersion});
+              response=await client.rpc('jobflow_save_staff',{args:{member,groupId,revision}}).abortSignal(AbortSignal.timeout(25000));
+            }
+            if(authError(response.error)){
+              const refreshed=await client.auth.refreshSession();
+              if(refreshed.error||!refreshed.data.session){requestLogin('Phiên đăng nhập đã hết hạn. Đăng nhập lại để giữ nguyên form và tiếp tục lưu.');throw new Error('Phiên đăng nhập đã hết hạn. Nội dung đang nhập vẫn được giữ nguyên.');}
+              response=await client.rpc('jobflow_save_staff',{args:{member,groupId,revision}}).abortSignal(AbortSignal.timeout(25000));
+            }
+            const {data,error}=response;if(error)throw error;
             if(!data?.payload||!data?.revision)throw new Error('Máy chủ chưa xác nhận lưu nhân sự.');
             revision=data.revision;
             Object.assign(this,{groups:data.groups||this.groups,members:data.members||this.members,permissions:data.permissions||this.permissions,accessVersion:data.accessVersion??this.accessVersion});
@@ -92,7 +102,7 @@
         $('cloud-status').textContent='Đang lưu…';
         void persist(payload);return true;
       }};
-      const script=document.createElement('script');script.src='./app.js';
+      const script=document.createElement('script');script.src='./app.js?v=20260910-staff-save-2';
       await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=()=>reject(new Error('Không tải được ứng dụng.'));document.body.appendChild(script);});
       loaded=true;$('cloud-auth').hidden=true;document.body.classList.remove('cloud-locked');
       $('cloud-bar').hidden=false;$('cloud-user').textContent=membership.email+' · '+membership.role;
@@ -105,12 +115,11 @@
         try {
           const data=await api('status');
           if(saving||blocked)return;
-          if(data.accessVersion!==window.JOBFLOW_CLOUD.accessVersion){lockAccess('Quyền truy cập đã thay đổi. Tải lại để nhận quyền mới.');return;}
+          if(data.accessVersion!==window.JOBFLOW_CLOUD.accessVersion){$('cloud-status').textContent='Quyền truy cập đã thay đổi — bấm Tải dữ liệu mới';return;}
           if(data.revision!==revision)$('cloud-status').textContent='Có dữ liệu mới — bấm Tải dữ liệu mới';
         } catch(error) {
           if(saving||blocked)return;
-          if(accessDenied(error))lockAccess('Phiên đăng nhập hoặc quyền truy cập không còn hợp lệ. Tải lại để đăng nhập và kiểm tra quyền.');
-          else $('cloud-status').textContent='Kết nối tạm gián đoạn — nội dung đang nhập được giữ nguyên';
+          $('cloud-status').textContent=authError(error)?'Phiên cần được xác nhận lại khi lưu — nội dung đang nhập được giữ nguyên':'Kết nối tạm gián đoạn — nội dung đang nhập được giữ nguyên';
         } finally {polling=false;}
       },15000);
     } catch(error) {message('Không thể tải dữ liệu. '+(error?.message||'Kiểm tra kết nối rồi thử lại.'));}
@@ -127,7 +136,9 @@
   form.addEventListener('submit',async event=>{
     event.preventDefault();if(!client)return;busy(true);message('Đang đăng nhập…');
     try {const {data,error}=await client.auth.signInWithPassword({email:form.elements.email.value.trim(),password:form.elements.password.value});
-      if(error)throw error;form.elements.password.value='';await loadWorkspace(data.session);
+      if(error)throw error;form.elements.password.value='';
+      if(loaded&&data.session.user.email?.toLowerCase()===activeEmail){blocked=false;$('cloud-auth').hidden=true;document.body.classList.remove('cloud-locked');$('cloud-status').textContent='Đã xác nhận lại phiên — bấm Save changes để lưu';}
+      else await loadWorkspace(data.session);
     }catch(error){message(error.message||'Không đăng nhập được.');}finally{busy(false);}
   });
   $('cloud-signup').onclick=async()=>{
@@ -141,7 +152,7 @@
     if(!window.supabase?.createClient)throw new Error('Không tải được thư viện đăng nhập.');
     client=window.supabase.createClient(window.JOBFLOW_CONFIG.url,window.JOBFLOW_CONFIG.publishableKey,{auth:{storageKey:'jobflow-supabase-auth',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
     client.auth.onAuthStateChange((event,session)=>{
-      if(event==='SIGNED_OUT'&&loaded){clearInterval(pollTimer);document.body.classList.add('cloud-locked');$('cloud-auth').hidden=false;location.reload();}
+      if(event==='SIGNED_OUT'&&loaded){requestLogin('Phiên đăng nhập đã hết hạn. Đăng nhập lại để giữ nguyên nội dung đang nhập.');}
       else if(session&&loaded&&session.user.email?.toLowerCase()!==activeEmail)location.reload();
       else if(session&&!loaded)setTimeout(()=>void loadWorkspace(session),0);
     });
