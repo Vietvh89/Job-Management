@@ -3,11 +3,11 @@ const fs=require('node:fs');
 const assert=require('node:assert/strict');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 async function setup(options={}) {
-  const nodes=new Map(),writes=[],classes=new Set();let appLoads=0,poll,staffCalls=0,refreshes=0,clientOptions;
+  const nodes=new Map(),writes=[],passwordCalls=[],classes=new Set();let appLoads=0,poll,staffCalls=0,refreshes=0,clientOptions;
   function node(id){if(!nodes.has(id))nodes.set(id,{textContent:'',hidden:false,open:false,addEventListener(){},querySelectorAll(){return[];},showModal(){this.open=true;},close(){this.open=false;},elements:{email:{value:'member@example.invalid'},password:{value:'not-a-real-password'}},reportValidity(){return true;}});return nodes.get(id);}
   const membership=options.noMember?null:{email:'member@example.invalid',role:options.role||'editor',permissions:{jobs:options.role==='viewer'?1:2},accessVersion:1,groups:[],members:[]};
   const payload={jobs:[],capacity:{},timeline:{}};
-  const client={auth:{onAuthStateChange(){},async getSession(){return{data:{session:{user:{email:'member@example.invalid'}}}};},async refreshSession(){refreshes++;return options.refreshError?{data:{session:null},error:{message:'expired'}}:{data:{session:{user:{email:'member@example.invalid'}}},error:null};},async signOut(){return{};}},rpc(name,{action,args}){
+  const client={functions:{async invoke(name,request){passwordCalls.push({name,request});return options.passwordError?{error:{message:'Password failed'}}:{data:{ok:true,action:'updated'},error:null};}},auth:{onAuthStateChange(){},async getSession(){return{data:{session:{user:{email:'member@example.invalid'}}}};},async refreshSession(){refreshes++;return options.refreshError?{data:{session:null},error:{message:'expired'}}:{data:{session:{user:{email:'member@example.invalid'}}},error:null};},async signOut(){return{};}},rpc(name,{action,args}){
     assert.ok(['jobflow_access','jobflow_save_staff'].includes(name));if(action==='save'||name==='jobflow_save_staff')writes.push(args);
     const query={abortSignal(){return query;},then(resolve,reject){
       let response=membership?{data:{...membership,payload,revision:1}}:{error:{message:'Access denied'}};
@@ -21,7 +21,7 @@ async function setup(options={}) {
   const window={supabase:{createClient:(url,key,options)=>(clientOptions=options,client)},JOBFLOW_CONFIG:{url:'https://example.invalid',publishableKey:'test'},addEventListener(){}};
   const sandbox={window,document,Blob,AbortSignal,URL,console,setTimeout,clearInterval,setInterval(fn){poll=fn;return 1;},alert(){},confirm(){return true;},location:{origin:'https://example.invalid',reload(){}}};
   vm.runInNewContext(fs.readFileSync('public/cloud.js','utf8'),sandbox);await flush();await flush();
-  return {window,nodes,writes,classes,poll:()=>poll(),get appLoads(){return appLoads;},get refreshes(){return refreshes;},get clientOptions(){return clientOptions;}};
+  return {window,nodes,writes,passwordCalls,classes,poll:()=>poll(),get appLoads(){return appLoads;},get refreshes(){return refreshes;},get clientOptions(){return clientOptions;}};
 }
 (async()=>{
   let app=await setup();assert.equal(app.appLoads,1);assert.ok(app.window.JOBFLOW_CLOUD.initialState);assert.equal(app.clientOptions.db.retry,false);
@@ -35,6 +35,8 @@ async function setup(options={}) {
   app=await setup({statusError:{message:'Failed to fetch'}});await app.poll();assert.equal(app.nodes.get('cloud-auth').hidden,true);assert.equal(app.classes.has('cloud-locked'),false);assert.ok(app.nodes.get('cloud-status').textContent.includes('giữ nguyên'));
   app=await setup({statusError:{code:'42501',message:'Access revoked'}});await app.poll();assert.equal(app.nodes.get('cloud-auth').hidden,true);assert.equal(app.classes.has('cloud-locked'),false);assert.ok(app.nodes.get('cloud-status').textContent.includes('giữ nguyên'));
   app=await setup({role:'admin'});const staffResult=await app.window.JOBFLOW_CLOUD.saveStaff({id:'staff-test'},'g');assert.equal(staffResult.revision,3);assert.equal(app.writes[0].groupId,'g');assert.equal(app.window.JOBFLOW_CLOUD.groups[0].id,'g');
+  assert.equal((await app.window.JOBFLOW_CLOUD.setStaffPassword('staff@example.invalid','safe-password')).action,'updated');assert.equal(app.passwordCalls[0].name,'jobflow-user-password');assert.equal(app.passwordCalls[0].request.body.email,'staff@example.invalid');
+  app=await setup({role:'viewer'});await assert.rejects(app.window.JOBFLOW_CLOUD.setStaffPassword('staff@example.invalid','safe-password'),/Account Owners/);assert.equal(app.passwordCalls.length,0);
   const failure={role:'admin',staffError:{code:'23505',message:'Email must be unique'}};app=await setup(failure);await assert.rejects(app.window.JOBFLOW_CLOUD.saveStaff({id:'staff-test'},'g'),{message:'Email must be unique'});assert.equal(app.nodes.get('cloud-auth').hidden,true);assert.equal(app.classes.has('cloud-locked'),false);failure.staffError=null;assert.equal((await app.window.JOBFLOW_CLOUD.saveStaff({id:'staff-test'},'g')).revision,3);
   app=await setup({role:'admin',staffErrors:[{code:'PT409',status:409,message:'stale'},null]});assert.equal((await app.window.JOBFLOW_CLOUD.saveStaff({id:'staff-test'},'g')).revision,3);assert.equal(app.writes.length,2);
   app=await setup({role:'admin',staffErrors:[{status:401,message:'expired'},null]});assert.equal((await app.window.JOBFLOW_CLOUD.saveStaff({id:'staff-test'},'g')).revision,3);assert.equal(app.refreshes,1);assert.equal(app.nodes.get('cloud-auth').hidden,true);
