@@ -82,6 +82,17 @@
             throw error;
           }finally{saving=false;}
         },
+        async setStaffPassword(email,password){
+          if(this.role!=='admin')throw new Error('Only Account Owners can manage login passwords.');
+          const {data,error}=await client.functions.invoke('jobflow-user-password',{body:{email,password},signal:AbortSignal.timeout(25000)});
+          if(error){
+            let detail=error.message;
+            try{const payload=await error.context?.json();if(payload?.error)detail=payload.error;}catch{}
+            throw new Error(detail||'The login password could not be updated.');
+          }
+          if(!data?.ok)throw new Error(data?.error||'The login password could not be updated.');
+          return data;
+        },
         async manage(action,args){
           if(saving||blocked)throw new Error('Vui lòng chờ thay đổi hiện tại được lưu.');
           saving=true;
@@ -102,7 +113,7 @@
         $('cloud-status').textContent='Đang lưu…';
         void persist(payload);return true;
       }};
-      const script=document.createElement('script');script.src='./app.js?v=20260910-staff-save-4';
+      const script=document.createElement('script');script.src='./app.js?v=20260910-staff-password-1';
       await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=()=>reject(new Error('Không tải được ứng dụng.'));document.body.appendChild(script);});
       loaded=true;$('cloud-auth').hidden=true;document.body.classList.remove('cloud-locked');
       $('cloud-bar').hidden=false;$('cloud-user').textContent=membership.email+' · '+membership.role;
