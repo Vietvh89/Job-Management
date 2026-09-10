@@ -3,6 +3,7 @@ const harness=fs.readFileSync('tests/audit.cjs','utf8').split('const a=sandbox.a
  .replace('globalThis.audit={state,save,','globalThis.audit={state,save,staffMemberDraft,openStaffEditor,');
 eval(harness+String.raw`
 (async()=>{
+ const appSource=fs.readFileSync('public/app.js','utf8');assert.ok(appSource.includes('name="newPassword"'));assert.ok(appSource.includes('name="confirmPassword"'));assert.ok(appSource.includes('setStaffPassword(member.email,newPassword)'));
  const a=sandbox.audit,original=JSON.stringify(a.state),member=a.state.capacity.members[0];
  const data={id:member.id,staffId:member.staffId,fullName:'Updated name',shortName:member.shortName,rank:member.rank,department:member.department,role:member.role,email:'',status:'active',targetUtilization:'85',groupId:''};
  const draft=a.staffMemberDraft(data);assert.equal(draft.targetUtilization,85);assert.equal(draft.email,'');assert.equal(JSON.stringify(a.state),original);
