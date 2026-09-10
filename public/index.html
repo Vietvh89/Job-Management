@@ -17,10 +17,9 @@
       <label>Email<input name="email" type="email" autocomplete="username" required /></label>
       <label>Mật khẩu<input name="password" type="password" autocomplete="current-password" minlength="8" required /></label>
       <button class="button primary" type="submit">Đăng nhập</button>
-      <button class="button" id="cloud-signup" type="button">Tạo tài khoản</button>
       <p id="cloud-auth-message" role="status">Đang kết nối…</p>
       <button class="button" type="button" id="cloud-auth-reload">Thử lại</button>
-      <p class="cloud-help">Tạo tài khoản chưa tự cấp quyền vào dữ liệu. Quản trị viên cần thêm email của bạn vào danh sách thành viên.</p>
+      <p class="cloud-help">Tài khoản đăng nhập do quản trị viên tạo và phân quyền.</p>
     </form>
   </section>
   <div id="cloud-bar" class="cloud-bar" hidden><span id="cloud-user"></span><span id="cloud-status" role="status"></span><button id="cloud-refresh" class="button">Tải dữ liệu mới</button><button id="cloud-logout" class="button">Đăng xuất</button></div>
@@ -218,6 +217,6 @@
   <script src="./staff-data.js"></script>
   <script src="./vendor/supabase.js"></script>
   <script src="./cloud-config.js"></script>
-  <script src="./cloud.js?v=20260910-staff-save-4"></script>
+  <script src="./cloud.js?v=20260910-staff-save-5"></script>
 </body>
 </html>
