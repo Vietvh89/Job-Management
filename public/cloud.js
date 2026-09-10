@@ -61,7 +61,7 @@
           saving=true;
           try{
             let response=await client.rpc('jobflow_save_staff',{args:{member,groupId,revision}}).abortSignal(AbortSignal.timeout(25000));
-            if(response.error?.code==='40001'){
+            if(response.error?.code==='PT409'||response.error?.status===409){
               const fresh=await api('load');revision=fresh.revision;
               Object.assign(this,{groups:fresh.groups||[],members:fresh.members||[],permissions:fresh.permissions,accessVersion:fresh.accessVersion});
               response=await client.rpc('jobflow_save_staff',{args:{member,groupId,revision}}).abortSignal(AbortSignal.timeout(25000));
@@ -102,7 +102,7 @@
         $('cloud-status').textContent='Đang lưu…';
         void persist(payload);return true;
       }};
-      const script=document.createElement('script');script.src='./app.js?v=20260910-staff-save-2';
+      const script=document.createElement('script');script.src='./app.js?v=20260910-staff-save-3';
       await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=()=>reject(new Error('Không tải được ứng dụng.'));document.body.appendChild(script);});
       loaded=true;$('cloud-auth').hidden=true;document.body.classList.remove('cloud-locked');
       $('cloud-bar').hidden=false;$('cloud-user').textContent=membership.email+' · '+membership.role;
