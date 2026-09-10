@@ -534,6 +534,9 @@ kbd { margin-left: auto; padding: 2px 7px; border: 1px solid #d6dee5; border-bot
 .schedule-range input { width: 126px; padding: 6px 7px; border: 0; border-radius: 6px; color: var(--ink); background: #f5f8fa; font-size: .68rem; }
 .schedule-range .button { height: 30px; padding: 0 9px; }
 .panel-form-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+#staff-form fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 4px 0 14px; padding: 14px; }
+#staff-form fieldset legend { color: var(--ink); font-size: 13px; font-weight: 800; padding: 0 6px; }
+#staff-form fieldset > small { color: var(--muted); display: block; font-size: 11px; line-height: 1.45; margin-top: -2px; }
 .danger-button { border: 1px solid #efbcbc; color: var(--red); background: var(--red-pale); }
 .gantt-kpis { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 16px; }
 .gantt-kpi { padding: 14px 16px; border: 1px solid var(--line); border-radius: 11px; background: white; }
