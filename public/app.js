@@ -117,7 +117,7 @@
   if (!state.capacity) state.capacity = structuredClone(capacitySeed);
   if (!state.timeline) state.timeline = structuredClone(timelineSeed);
   if (!state.recurring) state.recurring = structuredClone(recurringSeed);
-  state.capacity.members.forEach((member,index)=>{member.staffId??=`HAN${String(index+1).padStart(3,"0")}`;member.targetUtilization??=80;});
+  state.capacity.members.forEach((member,index)=>{member.staffId??=`HAN${String(index+1).padStart(3,"0")}`;member.targetUtilization??=80;member.status??="active";member.email??="";});
   state.jobs.forEach((job,index) => {
     job.contact ||= `${job.client.split(" ")[0]} project team`;
     job.orderNo ||= `PO-${job.id.replace("JF-", "26")}`;
@@ -178,7 +178,7 @@
   const total = (items, field) => items.reduce((sum, item) => sum + Number(item[field] || 0), 0);
   const workingJobs = () => state.jobs.filter(job => !["Complete","Cancelled"].includes(job.status));
   const initials = name => name.split(/\s+/).map(x => x[0]).slice(0,2).join("").toUpperCase();
-  const currentStaffName = () => window.JOBFLOW_CLOUD?.email || state.capacity.members[0]?.name || "User";
+  const currentStaffName = () => state.capacity.members.find(m=>m.id===window.JOBFLOW_CLOUD?.staffId)?.shortName || window.JOBFLOW_CLOUD?.email || state.capacity.members[0]?.name || "User";
   const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
   let calendarMonth = new Date(new Date().getFullYear(),new Date().getMonth(),1);
   let timelineOffset = timelineDay(todayKey());
@@ -281,6 +281,7 @@
   function showPanel(title, content) {
     $("#audit-panel")?.remove();
     document.body.insertAdjacentHTML("beforeend",`<div class="modal-backdrop" id="audit-panel"><section class="modal" role="dialog" aria-modal="true" aria-label="${esc(title)}"><div class="modal-head"><h2>${esc(title)}</h2><button class="icon-btn" data-close-modal aria-label="Close">×</button></div>${content}</section></div>`);
+    applyAccessControls();
   }
 
   function historyPanel() {
@@ -312,6 +313,7 @@
       project = { jobId:job.id, expanded:true, items:[] };
       state.timeline.projects.push(project);
     }
+    if(window.JOBFLOW_CLOUD&&window.JOBFLOW_CLOUD.role!=='admin'&&!window.JOBFLOW_CLOUD.permissions?.phases)return project;
 
     let phases = project.items.filter(item => item.type === "phase").sort((a,b) => a.start - b.start);
     if (!phases.length) {
@@ -534,6 +536,7 @@
     const view=activeBoardView();
     const step=view?.steps.find(s=>s.visible&&s.status===status);
     if(!job||!step||!jobMatchesBoardView(job,view))return false;
+    if(!canAccess('jobs',2)||(status==='Complete'&&!canAccess('completion',2))||(job.status==='Complete'&&!canAccess('completedJobs',2))||(job.status==='Cancelled'&&!canAccess('archivedJobs',2))){showToast('Your access level does not allow this move.');return false;}
     if(boardViewColumnForJob(view,job)?.id===step.id)return false;
     if(!window.confirm(`Move ${job.id} — ${job.name}\nfrom “${boardViewColumnForJob(view,job)?.name||job.status}” to “${step.name}”?\n\nThis changes the Board stage. Phase and task progress will stay unchanged.`))return false;
     setBoardStage(job,step,view);
@@ -1225,11 +1228,112 @@
     return `<div class="template-layout"><aside class="card template-list">${list||'<p>No templates yet.</p>'}</aside><section class="card template-editor-card">${editor}</section></div>`;
   }
 
+  const accessCatalog=[
+    ['clients','Client',[0,1,2]],['jobs','Job',[0,1,2,3]],['completedJobs','Completed Jobs',[0,1,2,3]],
+    ['archivedJobs','Job Archive / Cancelled Jobs',[0,1,2,3]],['completion','Job — Complete Milestones, Tasks and To-do Items',[0,1,2]],
+    ['documents','Job Documents',[0,1,2,3]],['notes','Job Notes',[0,1,2,3]],['phases','Job Phases & Tasks',[0,1,2,3]],
+    ['milestones','Job Milestones',[0,1,2,3]],['costs','Job Costs',[0,1,2]],['billings','Job Estimated Billings',[0,1,2]],
+    ['financials','Job Financial Summary',[0,1]],['reports','Job Management Reports / Overview',[0,1]],
+    ['jobManager','Job Manager — job visibility',['assigned','all']],['schedule','Schedule & Staff Allocation',[0,1,2,3]],
+    ['staff','Staff Master',[0,1]],['templates','Templates',[0,1]],['boardViews','Board Views',[0,1]]
+  ];
+  const accessLabels={0:'No Access',1:'View Access',2:'Create/Edit Access',3:'Full Access',assigned:'View Assigned Jobs',all:'View All Jobs'};
+  const isAccountOwner=()=>!window.JOBFLOW_CLOUD||window.JOBFLOW_CLOUD.role==='admin';
+  const accessLevel=key=>isAccountOwner()?3:Number(window.JOBFLOW_CLOUD.permissions?.[key]||0);
+  const canAccess=(key,level=1)=>accessLevel(key)>=level;
+  let selectedPrivilegeStaff='',selectedPrivilegeEmail='',privilegeDraft=null,groupDraft=null;
+  const accessRules=[
+    ['[data-new-staff],[data-edit-staff],[data-delete-staff],[data-new-template],[data-edit-template],[data-create-board-view],[data-edit-board-view],#staff-form,#template-editor,#board-view-form,#template-board-view-form','owner',3],
+    ['#job-form,#recurring-form,#job-info-form,[data-review-deadline],[data-job-action],[data-use-template],#new-job-btn,#new-recurring-btn','jobs',2],
+    ['[data-job-action="complete"],[data-task],[data-subtask-check],[data-work-check],[data-timeline-progress]','completion',2],
+    ['[data-job-action="cancel"]','archivedJobs',2],
+    ['#job-document-form','documents',2],['#job-note-form,#edit-note-form,[data-edit-note]','notes',2],['[data-delete-note]','notes',3],
+    ['#job-task-detail-form,#subtask-form,#checklist-item-form,[data-add-phase],[data-add-phase-task],[data-add-subtask],[data-add-task-checklist],[data-add-subtask-checklist],[data-edit-subtask],[data-edit-checklist]','phases',2],
+    ['[data-delete-work-item],[data-delete-subtask],[data-delete-checklist]','phases',3],
+    ['[data-add-milestone],#milestone-form','milestones',2],
+    ['#edit-timeline-form,[data-edit-item],[data-gantt-shift],[data-adjust-allocation],[data-timer-job],#start-timer-form,#allocation-form','schedule',2],
+    ['[data-delete-timeline],[data-remove-allocation]','schedule',3]
+  ];
+  function deniedAccess(element){
+    if(isAccountOwner())return false;
+    return accessRules.some(([selector,key,level])=>element?.closest?.(selector)&&(key==='owner'||!canAccess(key,level)));
+  }
+  function applyAccessControls(){
+    if(isAccountOwner())return;
+    for(const [selector,key,level] of accessRules)if(key==='owner'||!canAccess(key,level))for(const el of document.querySelectorAll(selector)){
+      if(el.tagName==='FORM'){el.querySelectorAll('input,select,textarea,button').forEach(n=>n.disabled=true);}
+      else {el.disabled=true;el.setAttribute('aria-disabled','true');el.title='Your access level does not allow this action.';}
+    }
+    const views={dashboard:'reports',jobs:'jobs',schedule:'schedule',clients:'clients'};
+    for(const el of document.querySelectorAll('.nav-item[data-view]'))el.hidden=el.dataset.view==='settings'?!['staff','templates','boardViews'].some(key=>canAccess(key)):!canAccess(views[el.dataset.view]);
+    if(!canAccess('jobs',2))for(const el of document.querySelectorAll('[draggable="true"]'))el.draggable=false;
+    for(const key of ['contact','orderNo']){const input=document.querySelector(`#job-info-form [name="${key}"]`);if(input&&!canAccess('clients',2))input.disabled=true;}
+    for(const [key,module] of [['budget','billings'],['billed','billings'],['spent','costs'],['costRate','costs']]){const input=document.querySelector(`#job-info-form [name="${key}"]`);if(input){if(!canAccess(module,2)||!canAccess('financials'))input.disabled=true;if(!canAccess(module)||!canAccess('financials'))input.closest('label').hidden=true;}}
+    const progress=document.querySelector('#edit-timeline-form [name="progress"]');if(progress&&!canAccess('completion',2))progress.disabled=true;
+    for(const el of document.querySelectorAll('[data-open-capacity],[data-job-section="capacity"],[data-job-section="schedule"]'))if(!canAccess('schedule'))el.hidden=true;
+    for(const el of document.querySelectorAll('[data-job-section="recurring"],[data-open-recurring]'))el.hidden=true;
+  }
+  if(window.JOBFLOW_CLOUD)for(const eventName of ['click','submit','change','dragstart','drop','pointerdown'])document.addEventListener(eventName,event=>{
+    if(deniedAccess(event.target)){event.preventDefault();event.stopImmediatePropagation();showToast('Your access level does not allow this action.');}
+    if(!isAccountOwner()&&(eventName==='dragstart'||eventName==='drop')&&!canAccess('jobs',2)){event.preventDefault();event.stopImmediatePropagation();}
+  },true);
+  const accessGroups=()=>window.JOBFLOW_CLOUD?.groups||[];
+  const accessMembers=()=>window.JOBFLOW_CLOUD?.members||[];
+  function permissionMatrix(values={},group={},overrides=false,owner=false){
+    return `<div class="access-table-scroll"><table class="jobs-table access-table"><thead><tr><th>General Privileges</th><th>${overrides?'Special Permission':'Group Permission'}</th><th>Effective Permission</th></tr></thead><tbody>${accessCatalog.map(([key,label,choices])=>{const inherited=key==='jobManager'?(group[key]||'assigned'):(group[key]??0),effective=owner?(key==='jobManager'?'all':3):(values[key]??inherited);return `<tr><td>${esc(label)}${['staff','templates','boardViews'].includes(key)?'<small class="table-note">Editing is reserved to Account Owners.</small>':''}</td><td><select name="permission-${key}" data-permission-key="${key}" ${owner?'disabled':''}>${overrides?`<option value="inherit" ${values[key]===undefined?'selected':''}>Use Group Access · ${accessLabels[inherited]}</option>`:''}${choices.map(value=>`<option value="${value}" ${String(values[key]??(overrides?'inherit':inherited))===String(value)?'selected':''}>${accessLabels[value]}</option>`).join('')}</select></td><td><span class="access-badge ${effective===0?'denied':effective==='assigned'?'limited':'allowed'}" data-effective-key="${key}">${accessLabels[effective]}</span></td></tr>`;}).join('')}<tr><td>Collaboration Manager</td><td colspan="2"><span class="table-note">Not available in this application.</span></td></tr></tbody></table></div>`;
+  }
+  function readPermissionForm(form,overrides){
+    const p={};for(const [key] of accessCatalog){const value=form.elements[`permission-${key}`]?.value;if(value==='inherit'&&overrides)continue;p[key]=key==='jobManager'?value:Number(value);}return p;
+  }
+  function renderPrivileges(){
+    if(!isAccountOwner())return '<section class="card"><p>Only Account Owners can manage privileges.</p></section>';
+    const staff=state.capacity.members;
+    if(!selectedPrivilegeStaff&&!selectedPrivilegeEmail){selectedPrivilegeEmail=accessMembers()[0]?.email||'';selectedPrivilegeStaff=accessMembers()[0]?accessMembers()[0].staff_id||'':staff[0]?.id||'';}
+    const member=selectedPrivilegeEmail?accessMembers().find(m=>m.email===selectedPrivilegeEmail):accessMembers().find(m=>m.staff_id===selectedPrivilegeStaff);
+    const person=staff.find(s=>s.id===(member?.staff_id||selectedPrivilegeStaff));
+    if(!privilegeDraft)privilegeDraft={originalEmail:member?.email||'',staffId:member?.staff_id||person?.id||'',groupId:member?.group_id||'',role:member?.role||'editor',status:member?.status||'active',overrides:structuredClone(member?.overrides||{})};
+    const d=privilegeDraft,group=accessGroups().find(g=>g.id===d.groupId),owner=d.role==='admin',self=member?.email===window.JOBFLOW_CLOUD?.email;
+    const options=accessMembers().filter(m=>!m.staff_id).map(m=>`<option value="email:${esc(m.email)}" ${selectedPrivilegeEmail===m.email?'selected':''}>${esc(m.email)} · Account Owner</option>`).join('')+staff.map(s=>`<option value="staff:${s.id}" ${selectedPrivilegeStaff===s.id&&!selectedPrivilegeEmail?'selected':member?.staff_id===s.id?'selected':''}>${esc(s.shortName)} · ${esc(s.fullName)}${s.email?'':' · Email not set'}</option>`).join('');
+    const validEmail=Boolean(person?.email)||Boolean(member?.email&&!member.staff_id);
+    return `<section class="card access-card"><div class="card-head"><div><h2>Privileges</h2><p>Group defaults apply unless a Special Permission overrides them.</p></div><label class="access-user-picker">User<select id="privilege-user">${options}</select></label></div><form id="privilege-form"><div class="access-controls"><div><strong>${esc(person?.fullName||member?.email||'Select a user')}</strong><p>${esc(person?.email||member?.email||'Set an email in Staff Master before granting access.')}</p>${person?.status==='inactive'?'<span class="access-badge denied">Staff inactive — sign-in blocked</span>':''}</div><label>Group Access<select id="privilege-group" name="groupId" ${self?'disabled':''}><option value="">None — no permissions by default</option>${accessGroups().map(g=>`<option value="${g.id}" ${d.groupId===g.id?'selected':''}>${esc(g.name)}</option>`).join('')}</select></label><label>Access status<select name="status" ${self?'disabled':''}><option value="active" ${d.status==='active'?'selected':''}>Active</option><option value="inactive" ${d.status==='inactive'?'selected':''}>Inactive</option></select></label><label class="access-owner-toggle"><input type="checkbox" name="accountOwner" ${owner?'checked':''} ${self?'disabled':''}> Account Owner</label></div>${owner?'<p class="access-notice">Account Owners have full access and can manage users and groups.</p>':''}${permissionMatrix(d.overrides,group?.permissions||{},true,owner||self)}<div class="matrix-actions"><span>${self?'Your own Account Owner access is protected.':'Full Access includes deletion. Assigned Jobs includes jobs owned by or assigned to the linked staff member.'}</span><button class="button primary" type="submit" ${!validEmail||self?'disabled':''}>Save privileges</button></div><p class="access-footnote">After access is granted, the user signs up with this email and confirms their account. Saving privileges does not send an invitation.</p></form></section>`;
+  }
+  function renderAccessGroups(){
+    if(!isAccountOwner())return '<section class="card"><p>Only Account Owners can manage groups.</p></section>';
+    return `<section class="card access-card"><div class="card-head"><div><h2>Group Access</h2><p>Create reusable permission templates. Changes apply to every assigned user; individual overrides stay in effect.</p></div><button class="button primary" data-new-access-group>+ Group Access</button></div><div class="access-group-grid">${accessGroups().map(g=>`<article class="access-group"><h3>${esc(g.name)}</h3><p>${accessMembers().filter(m=>m.group_id===g.id).length} assigned users</p><p>${g.permissions.jobManager==='all'?'View all jobs':'View assigned jobs'}</p><div><button class="button ghost" data-edit-access-group="${g.id}">Edit permissions</button><button class="text-btn danger-text" data-delete-access-group="${g.id}" ${accessMembers().some(m=>m.group_id===g.id)?'disabled':''}>Delete</button></div></article>`).join('')||'<p>No groups yet. Create a Group Access template to begin.</p>'}</div></section>`;
+  }
+  function openAccessGroup(id=''){
+    if(!isAccountOwner())return;
+    groupDraft=structuredClone(accessGroups().find(g=>g.id===id)||{id:'',name:'',permissions:{}});
+    showPanel(id?'Edit Group Access':'Create Group Access',`<form id="access-group-form"><label>Group name<input name="name" value="${esc(groupDraft.name)}" required maxlength="100" placeholder="e.g. Audit team"></label>${permissionMatrix(groupDraft.permissions)}<div class="panel-form-actions"><button class="button primary" type="submit">Save Group Access</button></div></form>`);
+  }
+  async function saveAccessForm(form,action,args){
+    if(!isAccountOwner()||!window.JOBFLOW_CLOUD?.manage){showToast('Connect to the shared workspace to manage access.');return;}
+    const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+    try{await window.JOBFLOW_CLOUD.manage(action,args);privilegeDraft=null;groupDraft=null;$('#audit-panel')?.remove();render('settings');showToast('Access settings saved.');}
+    catch(error){showToast(error.message||'Could not save access settings.');buttons.forEach(b=>b.disabled=false);}
+  }
+  document.addEventListener('change',event=>{
+    if(event.target.id==='privilege-user'){const value=event.target.value;selectedPrivilegeEmail=value.startsWith('email:')?value.slice(6):'';selectedPrivilegeStaff=value.startsWith('staff:')?value.slice(6):'';privilegeDraft=null;render('settings');return;}
+    const form=event.target.closest?.('#privilege-form');
+    if(form&&privilegeDraft){privilegeDraft.overrides=readPermissionForm(form,true);privilegeDraft.groupId=form.elements.groupId.value;privilegeDraft.status=form.elements.status.value;privilegeDraft.role=form.elements.accountOwner.checked?'admin':'editor';if(event.target.id==='privilege-group'||event.target.name==='accountOwner'){render('settings');return;}const group=accessGroups().find(g=>g.id===privilegeDraft.groupId);for(const [key] of accessCatalog){const badge=form.querySelector(`[data-effective-key="${key}"]`),effective=privilegeDraft.overrides[key]??group?.permissions[key]??(key==='jobManager'?'assigned':0);if(badge){badge.textContent=accessLabels[effective];badge.className=`access-badge ${effective===0?'denied':effective==='assigned'?'limited':'allowed'}`;}}}
+    if(event.target.closest?.('#access-group-form')&&event.target.dataset.permissionKey){const key=event.target.dataset.permissionKey,badge=event.target.closest('tr').querySelector('[data-effective-key]');if(badge){badge.textContent=accessLabels[event.target.value];badge.className=`access-badge ${event.target.value==='0'?'denied':'allowed'}`;}}
+  });
+  document.addEventListener('click',event=>{
+    if(event.target.closest('[data-new-access-group]'))openAccessGroup();
+    const edit=event.target.closest('[data-edit-access-group]');if(edit)openAccessGroup(edit.dataset.editAccessGroup);
+    const del=event.target.closest('[data-delete-access-group]');if(del&&isAccountOwner()&&window.confirm('Delete this unassigned Group Access template?'))void saveAccessForm(del.closest('section'),'delete_group',{id:del.dataset.deleteAccessGroup});
+  });
+  document.addEventListener('submit',event=>{
+    const form=event.target;
+    if(form.id==='access-group-form'){event.preventDefault();if(!window.confirm('Save this group? Updated defaults will apply to all assigned users.'))return;void saveAccessForm(form,'save_group',{id:groupDraft.id,name:form.elements.name.value.trim(),permissions:readPermissionForm(form,false)});}
+    if(form.id==='privilege-form'){event.preventDefault();if(!privilegeDraft)return;const d={...privilegeDraft,groupId:form.elements.groupId.value,status:form.elements.status.value,role:form.elements.accountOwner.checked?'admin':'editor',overrides:readPermissionForm(form,true)};if(!window.confirm(d.role==='admin'?'Make this user an Account Owner with full access, including managing privileges?':'Save these user privileges? The new access rules take effect on the server immediately.'))return;void saveAccessForm(form,'save_member',d);}
+  });
+
   function renderStaffSettings() {
     const ranks=[...new Set(state.capacity.members.map(member=>member.rank).filter(Boolean))].sort();
     const departments=[...new Set(state.capacity.members.map(member=>member.department).filter(Boolean))].sort();
     const members=state.capacity.members.filter(member=>(staffRankFilter==="All ranks"||member.rank===staffRankFilter)&&(staffDepartmentFilter==="All departments"||member.department===staffDepartmentFilter)&&(!staffSearchSelection||member.id===staffSearchSelection));
-    return `<div class="toolbar staff-toolbar">${searchPickerMarkup("staff","staff-search",staffQuery,"Search staff…",staffSearchSelection?staffQuery:"")}<select class="filter-select" id="staff-rank"><option>All ranks</option>${ranks.map(rank=>`<option ${staffRankFilter===rank?"selected":""}>${esc(rank)}</option>`).join("")}</select><select class="filter-select" id="staff-department"><option>All departments</option>${departments.map(department=>`<option ${staffDepartmentFilter===department?"selected":""}>${esc(department)}</option>`).join("")}</select><span class="toolbar-spacer"></span><span class="date-chip">${members.length} of ${state.capacity.members.length} staff</span></div><section class="card table-card staff-table-card"><table class="jobs-table staff-table"><thead><tr><th>Staff ID</th><th>Short name</th><th>Full name</th><th>Rank</th><th>Department</th><th>Position / Role</th><th>Target utilization</th><th></th></tr></thead><tbody>${members.map(member=>`<tr><td><strong>${esc(member.staffId)}</strong></td><td><span class="staff-short"><span class="avatar">${esc(member.code)}</span><strong>${esc(member.shortName)}</strong></span></td><td>${esc(member.fullName)}</td><td><span class="rank-chip">${esc(member.rank)}</span></td><td>${esc(member.department)}</td><td>${esc(member.role)}</td><td><strong>${member.targetUtilization}%</strong></td><td><div class="staff-actions"><button class="text-btn" data-edit-staff="${member.id}">Edit</button><button class="text-btn danger-text" data-delete-staff="${member.id}">Delete</button></div></td></tr>`).join("")}</tbody></table></section>`;
+    return `<div class="toolbar staff-toolbar">${searchPickerMarkup("staff","staff-search",staffQuery,"Search staff…",staffSearchSelection?staffQuery:"")}<select class="filter-select" id="staff-rank"><option>All ranks</option>${ranks.map(rank=>`<option ${staffRankFilter===rank?"selected":""}>${esc(rank)}</option>`).join("")}</select><select class="filter-select" id="staff-department"><option>All departments</option>${departments.map(department=>`<option ${staffDepartmentFilter===department?"selected":""}>${esc(department)}</option>`).join("")}</select><span class="toolbar-spacer"></span><span class="date-chip">${members.length} of ${state.capacity.members.length} staff</span></div><section class="card table-card staff-table-card"><table class="jobs-table staff-table"><thead><tr><th>Staff ID</th><th>Short name</th><th>Full name</th><th>Rank</th><th>Department</th><th>Position / Role</th><th>Status</th><th>Email</th><th>Target utilization</th><th></th></tr></thead><tbody>${members.map(member=>`<tr><td><strong>${esc(member.staffId)}</strong></td><td><span class="staff-short"><span class="avatar">${esc(member.code)}</span><strong>${esc(member.shortName)}</strong></span></td><td>${esc(member.fullName)}</td><td><span class="rank-chip">${esc(member.rank)}</span></td><td>${esc(member.department)}</td><td>${esc(member.role)}</td><td><span class="access-badge ${member.status==="inactive"?"denied":"allowed"}">${member.status==="inactive"?"Inactive":"Active"}</span></td><td>${esc(member.email||"")}</td><td><strong>${member.targetUtilization}%</strong></td><td><div class="staff-actions"><button class="text-btn" data-edit-staff="${member.id}">Edit</button><button class="text-btn danger-text" data-delete-staff="${member.id}">Delete</button></div></td></tr>`).join("")}</tbody></table></section>`;
   }
 
   function openBoardViewSelector() {
@@ -1276,14 +1380,14 @@
 
   function renderSettings() {
     const actions=settingsSection==="templates"?'<button class="button primary" data-new-template>+ Template</button>':settingsSection==="staff"?'<button class="button primary" data-new-staff>+ Staff member</button>':settingsSection==="board-views"?'<button class="button primary" data-create-board-view>+ Board view</button>':'';
-    const sections={templates:renderTemplateSettings,staff:renderStaffSettings,"board-views":renderBoardViewSettings};
+    const sections={templates:renderTemplateSettings,staff:renderStaffSettings,"board-views":renderBoardViewSettings,privileges:renderPrivileges,"group-access":renderAccessGroups};
     if(!sections[settingsSection])settingsSection="templates";
-    return `${pageHead("Administration","Settings","Manage reusable templates, staff and Board workflows.",actions)}<nav class="job-tabs" aria-label="Settings sections">${[["templates","Templates"],["staff","Staff master"],["board-views","Board views"]].map(([key,label])=>`<button class="job-tab ${settingsSection===key?"active":""}" data-settings-section="${key}">${label}</button>`).join("")}</nav>${sections[settingsSection]()}`;
+    return `${pageHead("Administration","Settings","Manage reusable templates, staff and Board workflows.",actions)}<nav class="job-tabs" aria-label="Settings sections">${[["templates","Templates"],["staff","Staff master"],["board-views","Board views"],...(isAccountOwner()?[["privileges","Privileges"],["group-access","Group Access"]]:[])].filter(([key])=>isAccountOwner()||canAccess(key==="board-views"?"boardViews":key)).map(([key,label])=>`<button class="job-tab ${settingsSection===key?"active":""}" data-settings-section="${key}">${label}</button>`).join("")}</nav>${sections[settingsSection]()}`;
   }
 
   function openStaffEditor(memberId="") {
     const member=state.capacity.members.find(item=>item.id===memberId)||{id:"",staffId:`HAN${String(state.capacity.members.length+1).padStart(3,"0")}`,rank:"",department:"AUD HAN",role:"Supporter",fullName:"",shortName:"",targetUtilization:80};
-    showPanel(member.id?"Edit staff member":"Add staff member",`<form id="staff-form"><input type="hidden" name="id" value="${esc(member.id)}"><label>Staff ID<input name="staffId" value="${esc(member.staffId)}" required maxlength="40"></label><label>Full name<input name="fullName" value="${esc(member.fullName)}" required maxlength="160"></label><label>Short name<input name="shortName" value="${esc(member.shortName)}" required maxlength="40"><small>Displayed in Job Manager, Schedule and capacity views.</small></label><label>Rank<input name="rank" value="${esc(member.rank)}" required maxlength="30"></label><label>Department<input name="department" value="${esc(member.department)}" required maxlength="80"></label><label>Position / Role<input name="role" value="${esc(member.role)}" required maxlength="120"></label><label>Target utilization (%)<input name="targetUtilization" type="number" min="1" max="150" step="1" value="${member.targetUtilization}" required></label><button class="button primary" type="submit">${member.id?"Save changes":"Add staff member"}</button></form>`);
+    showPanel(member.id?"Edit staff member":"Add staff member",`<form id="staff-form"><input type="hidden" name="id" value="${esc(member.id)}"><label>Staff ID<input name="staffId" value="${esc(member.staffId)}" required maxlength="40"></label><label>Full name<input name="fullName" value="${esc(member.fullName)}" required maxlength="160"></label><label>Short name<input name="shortName" value="${esc(member.shortName)}" required maxlength="40"><small>Displayed in Job Manager, Schedule and capacity views.</small></label><label>Rank<input name="rank" value="${esc(member.rank)}" required maxlength="30"></label><label>Department<input name="department" value="${esc(member.department)}" required maxlength="80"></label><label>Position / Role<input name="role" value="${esc(member.role)}" required maxlength="120"></label><label>Status<select name="status"><option value="active" ${member.status!=="inactive"?"selected":""}>Active</option><option value="inactive" ${member.status==="inactive"?"selected":""}>Inactive</option></select></label><label>Email<input name="email" type="email" value="${esc(member.email||"")}" maxlength="254" placeholder=""><small>Use the user’s sign-in email to link access.</small></label><label>Target utilization (%)<input name="targetUtilization" type="number" min="1" max="150" step="1" value="${member.targetUtilization}" required></label><button class="button primary" type="submit">${member.id?"Save changes":"Add staff member"}</button></form>`);
   }
 
   function refreshStaffSelects() {
@@ -1395,7 +1499,7 @@
   document.addEventListener("submit",event=>{if(event.target.id!=="board-view-form")return;event.preventDefault();readBoardViewDraft();const previous=state.boardViews.find(view=>view.id===boardViewDraft.id),name=boardViewDraft.name.trim(),steps=boardViewDraft.steps.map(step=>{const savedStep=previous?.steps.find(item=>item.id===step.id),stepName=step.name.trim();return {...step,name:stepName,status:savedStep&&savedStep.name===stepName?savedStep.status:stepName};});if(!name){showToast("Enter a view name.");return;}if(state.boardViews.some(view=>view.id!==boardViewDraft.id&&view.name.trim().toLowerCase()===name.toLowerCase())){showToast("A Board view with this name already exists.");return;}if(!boardViewDraft.templateIds.length){showToast("Select at least one template so the view can display jobs.");return;}if(!steps.length||steps.some(step=>!step.name)){showToast("Each view needs at least one named step.");return;}if(new Set(steps.map(step=>step.name.toLowerCase())).size!==steps.length){showToast("Step names must be unique within a view.");return;}if(!steps.some(step=>step.visible)){showToast("Choose at least one step to display.");return;}if(!steps[0].visible){showToast("The first step must be visible so newly assigned jobs can appear there.");return;}const copy={id:boardViewDraft.id,name,isDefault:Boolean(boardViewDraft.isDefault),steps};if(previous){const templates=boardViewTemplates(previous);for(const oldStep of previous.steps){const next=steps.find(step=>step.id===oldStep.id);if(next&&next.status!==oldStep.status)state.jobs.filter(job=>templates.some(template=>jobUsesTemplate(job,template))).forEach(job=>{if(boardViewStepForStatus({steps:[oldStep]},job.status)){job.status=next.status;if(job.boardStageStatus===oldStep.status)job.boardStageStatus=next.status;}});}}const index=state.boardViews.findIndex(view=>view.id===copy.id);if(index<0)state.boardViews.push(copy);else state.boardViews[index]=copy;if(copy.isDefault)state.boardViews.forEach(view=>{if(view.id!==copy.id)view.isDefault=false;});if(!state.boardViews.some(view=>view.isDefault))copy.isDefault=true;state.jobTemplates.forEach(template=>{if(boardViewDraft.templateIds.includes(template.id))template.boardViewId=copy.id;else if(template.boardViewId===copy.id)template.boardViewId="";});normalizeViewJobs(copy,boardViewDraft.templateIds);selectedBoardViewId=copy.id;boardStepFilter="All steps";boardViewDraft=null;if(!save())return;$("#audit-panel")?.remove();render(currentView);showToast(`${copy.name} saved.`);});
   document.addEventListener("submit",event=>{if(event.target.id!=="template-board-view-form")return;event.preventDefault();const data=new FormData(event.target);state.jobTemplates.forEach(template=>{template.boardViewId=String(data.get(`template-${template.id}`)||"");});if(!save())return;render("settings");showToast("Template Board views saved.");});
   document.addEventListener("submit",event=>{if(event.target.id!=="template-editor")return;event.preventDefault();readTemplateDraft();const error=validateTemplate(templateDraft);if(error){showToast(error);return;}const copy=structuredClone(templateDraft);copy.name=copy.name.trim();const index=state.jobTemplates.findIndex(t=>t.id===copy.id);if(index<0)state.jobTemplates.push(copy);else state.jobTemplates[index]=copy;if(!save())return;setTemplateDraft(structuredClone(copy));render("settings");showToast("Template saved for future jobs.");});
-  document.addEventListener("submit",event=>{if(event.target.id!=="staff-form")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.target)),required=["staffId","fullName","shortName","rank","department","role"];for(const field of required)data[field]=String(data[field]||"").trim();if(required.some(field=>!data[field])){showToast("Complete all staff fields.");return;}const duplicate=state.capacity.members.find(member=>member.id!==data.id&&(member.shortName.toLowerCase()===data.shortName.toLowerCase()||member.staffId.toLowerCase()===data.staffId.toLowerCase()));if(duplicate){showToast("Staff ID and short name must be unique.");return;}const targetUtilization=Number(data.targetUtilization);if(!Number.isFinite(targetUtilization)||targetUtilization<1||targetUtilization>150){showToast("Target utilization must be between 1% and 150%.");return;}let member=state.capacity.members.find(item=>item.id===data.id);if(member){const previous=member.shortName;Object.assign(member,{staffId:data.staffId,fullName:data.fullName,shortName:data.shortName,name:data.shortName,rank:data.rank,department:data.department,team:data.department,role:data.role,targetUtilization,code:staffCode(data.shortName)});if(previous!==data.shortName){state.jobs.forEach(job=>{if(job.owner===previous)job.owner=data.shortName;if(job.team)job.team=job.team.map(name=>name===previous?data.shortName:name);});state.timeline.projects.forEach(project=>project.items.forEach(item=>{if(item.owner===previous)item.owner=data.shortName;}));state.recurring.forEach(item=>{if(item.owner===previous)item.owner=data.shortName;});}}else{member={id:crypto.randomUUID(),staffId:data.staffId,fullName:data.fullName,shortName:data.shortName,name:data.shortName,rank:data.rank,department:data.department,team:data.department,role:data.role,targetUtilization,code:staffCode(data.shortName),email:"",weeklyHours:40,workDays:[1,1,1,1,1],allocations:[],leaves:[]};state.capacity.members.push(member);}state.capacity.unassigned.forEach(queue=>{const task=findTimelineItem(queue.jobId,queue.taskId).item;if(task?.owner===member.shortName)queue.team=member.department;});if(!save())return;refreshStaffSelects();$("#audit-panel")?.remove();render("settings");showToast(data.id?"Staff information updated.":"Staff member added.");});
+  document.addEventListener("submit",event=>{if(event.target.id!=="staff-form")return;event.preventDefault();const data=Object.fromEntries(new FormData(event.target)),required=["staffId","fullName","shortName","rank","department","role"];for(const field of required)data[field]=String(data[field]||"").trim();if(required.some(field=>!data[field])){showToast("Complete all staff fields.");return;}const duplicate=state.capacity.members.find(member=>member.id!==data.id&&(member.shortName.toLowerCase()===data.shortName.toLowerCase()||member.staffId.toLowerCase()===data.staffId.toLowerCase()));if(duplicate){showToast("Staff ID and short name must be unique.");return;}const email=String(data.email||"").trim().toLowerCase();if(email&&state.capacity.members.some(m=>m.id!==data.id&&m.email?.toLowerCase()===email)){showToast("Email must be unique.");return;}const targetUtilization=Number(data.targetUtilization);if(!Number.isFinite(targetUtilization)||targetUtilization<1||targetUtilization>150){showToast("Target utilization must be between 1% and 150%.");return;}let member=state.capacity.members.find(item=>item.id===data.id);if(member){const previous=member.shortName;Object.assign(member,{status:data.status==="inactive"?"inactive":"active",email:String(data.email||"").trim().toLowerCase(),staffId:data.staffId,fullName:data.fullName,shortName:data.shortName,name:data.shortName,rank:data.rank,department:data.department,team:data.department,role:data.role,targetUtilization,code:staffCode(data.shortName)});if(previous!==data.shortName){state.jobs.forEach(job=>{if(job.owner===previous)job.owner=data.shortName;if(job.team)job.team=job.team.map(name=>name===previous?data.shortName:name);});state.timeline.projects.forEach(project=>project.items.forEach(item=>{if(item.owner===previous)item.owner=data.shortName;}));state.recurring.forEach(item=>{if(item.owner===previous)item.owner=data.shortName;});}}else{member={id:crypto.randomUUID(),staffId:data.staffId,fullName:data.fullName,shortName:data.shortName,name:data.shortName,rank:data.rank,department:data.department,team:data.department,role:data.role,targetUtilization,code:staffCode(data.shortName),status:data.status==="inactive"?"inactive":"active",email:String(data.email||"").trim().toLowerCase(),weeklyHours:40,workDays:[1,1,1,1,1],allocations:[],leaves:[]};state.capacity.members.push(member);}state.capacity.unassigned.forEach(queue=>{const task=findTimelineItem(queue.jobId,queue.taskId).item;if(task?.owner===member.shortName)queue.team=member.department;});if(!save())return;refreshStaffSelects();$("#audit-panel")?.remove();render("settings");showToast(data.id?"Staff information updated.":"Staff member added.");});
   document.addEventListener("change",event=>{if(event.target.matches("#staff-rank")){staffRankFilter=event.target.value;render("settings");}if(event.target.matches("#staff-department")){staffDepartmentFilter=event.target.value;render("settings");}});
   document.addEventListener("change",event=>{const fields={"dashboard-period":"period","dashboard-service":"service","dashboard-staff":"staff","dashboard-job-status":"jobStatus","dashboard-job-stage":"jobStage","dashboard-task-status":"taskStatus","dashboard-deadline-status":"deadlineStatus"},key=fields[event.target.id];if(!key)return;dashboardFilters[key]=event.target.value;render("dashboard");});
   document.addEventListener("change",event=>{const key=event.target.dataset.dashboardSectionMetric;if(!key||!dashboardSectionFilters[key])return;dashboardSectionFilters[key].metric=event.target.value;render("dashboard");});
@@ -1404,6 +1508,11 @@
 
   function render(view = currentView) {
     if(!renderers[view])view="dashboard";
+    const viewPermission={dashboard:'reports',jobs:'jobs',schedule:'schedule',clients:'clients'};
+    const permitted=name=>name==='settings'?isAccountOwner()||['staff','templates','boardViews'].some(key=>canAccess(key)):canAccess(viewPermission[name]);
+    if(!permitted(view))view=Object.keys(renderers).find(permitted);
+    if(!view){$('#view-root').innerHTML='<section class="card"><h2>No access assigned</h2><p>Contact your Account Owner to assign a Group Access or user privileges.</p></section>';return;}
+    if(view==='settings'&&!isAccountOwner()&&!canAccess(settingsSection==='board-views'?'boardViews':settingsSection))settingsSection=['templates','staff','board-views'].find(key=>canAccess(key==='board-views'?'boardViews':key));
     currentView = view;
     $("#view-root").innerHTML = renderers[view]();
     $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.view === view));
@@ -1411,6 +1520,7 @@
     document.title = `${$(".page-head h1")?.textContent || "JobFlow"} — JobFlow`;
     $("#sidebar").classList.remove("open");
     syncTimerUI();
+    applyAccessControls();
     for(const n of state.hiddenJobColumns||[]) $(".jobs-table-full tr").forEach(row=>{if(row.children[n-1])row.children[n-1].hidden=true;});
     const selectAll=$("[data-select-all]"); if(selectAll){const jobs=filteredJobs();selectAll.checked=jobs.length>0&&jobs.every(j=>selectedJobs.has(j.id));selectAll.indeterminate=jobs.some(j=>selectedJobs.has(j.id))&&!selectAll.checked;}
     if (view === "schedule" && scheduleFocusJobId) {
@@ -1543,12 +1653,14 @@
     const job = getJob(id);
     if (!job) return;
     activeJobId = id;
-    activeJobTab = tab;
-    const tabs = [["information","Information"],["phases","Phases"],["milestones","Milestones"],["notes","Notes"],["documents","Documents"]];
+    const tabPermission={information:'jobs',phases:'phases',milestones:'milestones',notes:'notes',documents:'documents',financials:'financials',history:'jobs'};
+    activeJobTab = canAccess(tabPermission[tab]||'jobs')?tab:'information';
+    const tabs = [["information","Information"],["phases","Phases"],["milestones","Milestones"],["notes","Notes"],["documents","Documents"]].filter(([key])=>canAccess(tabPermission[key]));
     $("#drawer-content").innerHTML = `<div class="drawer-body"><p class="eyebrow">Job Manager / ${job.id}</p><div class="drawer-title-row"><div><h2>${job.id} · ${esc(job.name)}</h2><p>${esc(job.client)} · owned by ${esc(job.owner)} · due ${shortDate(job.due)}</p></div><span class="status ${statusClass(job.status)}">${job.status}</span></div><div class="drawer-actions job-action-bar"><div class="job-actions-wrap"><button class="button ghost job-actions-trigger" data-job-menu aria-haspopup="menu" aria-expanded="false">Job actions${icon("arrow-down")}</button><div class="job-actions-menu" id="job-actions-menu" role="menu" hidden><button role="menuitem" data-job-action="duplicate" data-job-id="${job.id}">${icon("file")}<span><strong>Duplicate job</strong><small>Create a new copy of this job</small></span></button><button role="menuitem" data-job-action="complete" data-job-id="${job.id}">${icon("check")}<span><strong>Mark complete</strong><small>Set progress to 100%</small></span></button><button role="menuitem" data-job-action="hold" data-job-id="${job.id}" ${job.status==="On hold"?"disabled":""}>${icon("clock")}<span><strong>On hold</strong><small>Pause work without cancelling the job</small></span></button><button class="danger" role="menuitem" data-job-action="cancel" data-job-id="${job.id}">${icon("x")}<span><strong>Cancel job</strong><small>Stop work on this job</small></span></button></div></div><button class="button ghost" data-print-job>${icon("file")}Print</button><button class="button ghost" data-drawer-tab="history">${icon("clock")}History</button><button class="button primary" data-timer-job="${esc(job.name)}">${icon("play")}Track time</button></div><nav class="drawer-tabs">${tabs.map(([key,label])=>`<button class="drawer-tab ${activeJobTab===key?"active":""}" data-drawer-tab="${key}">${label}</button>`).join("")}</nav><div class="drawer-tab-content">${renderJobTab(job)}</div></div>`;
     $("#detail-drawer").classList.add("open");
     $("#detail-drawer").setAttribute("aria-hidden", "false");
     $("#drawer-scrim").hidden = false;
+    applyAccessControls();
   }
 
   function closeDrawer() {
@@ -1708,6 +1820,7 @@
   }
 
   function syncProjectProgress(project) {
+    if(window.JOBFLOW_CLOUD&&window.JOBFLOW_CLOUD.role!=='admin'&&!window.JOBFLOW_CLOUD.permissions?.phases)return;
     for (const phase of project.items.filter(i=>i.type==="phase")) {
       const children=project.items.filter(i=>i.parentPhaseId===phase.id);
       if(children.length) {phase.progress=Math.round(children.reduce((s,i)=>s+i.progress,0)/children.length);phase.status=phase.progress===100?"Complete":phase.progress?"In progress":"Planned";}
@@ -2562,10 +2675,20 @@
   const seededDemoData=seedWorkforceAndJobs();
   const maskedDemoNames=anonymizeStateNames();
   const migratedRecurringJobs=migrateRecurringRecords();
+  state.capacity.members.forEach(m=>{m.status??='active';m.email??='';});
   syncRelations();
   refreshStaffSelects();
   refreshClientSelects();
-  if(window.JOBFLOW_CLOUD) lastSavedState=JSON.stringify(state);
+  if(window.JOBFLOW_CLOUD) {
+    lastSavedState=JSON.stringify(state);
+    window.JOBFLOW_CLOUD.onSaved=payload=>{
+      if(!payload)return;
+      state=structuredClone(payload);
+      state.capacity.members.forEach(m=>{m.status??='active';m.email??='';});
+      syncRelations();lastSavedState=JSON.stringify(state);render();
+      if(activeJobId&&$('#detail-drawer').classList.contains('open'))openJob(activeJobId,activeJobTab);
+    };
+  }
   else if(seededBoardViews||seededDemoData||maskedDemoNames||migratedRecurringJobs)save();else lastSavedState=JSON.stringify(state);
   render();
 })();

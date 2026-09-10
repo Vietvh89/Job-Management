@@ -5,6 +5,11 @@
   let client, loaded = false, loading = false, saving = false, blocked = false;
   let revision = 0, pendingPayload = null, activeEmail = '';
   let pollTimer;
+  const api = async (action,args={}) => {
+    const {data,error}=await client.rpc('jobflow_access',{action,args}).abortSignal(AbortSignal.timeout(25000));
+    if(error) throw error;
+    return data;
+  };
   const dialog = $('cloud-saving');
   const form = $('cloud-login');
   function failSave(text) {
@@ -22,14 +27,13 @@
   }
   async function persist(payload) {
     try {
-      const {data,error} = await client.from('jobflow_workspace').update({payload,revision:revision+1})
-        .eq('id','main').eq('revision',revision).select('revision,updated_at').abortSignal(AbortSignal.timeout(25000));
-      if(error) throw error;
-      if(!data?.length) {
+      const data = await api('save',{payload,revision,accessVersion:window.JOBFLOW_CLOUD.accessVersion});
+      if(!data?.revision) {
         failSave('Dữ liệu đã được người khác sửa hoặc quyền truy cập đã thay đổi. Không ghi đè dữ liệu máy chủ. Tải bản thay đổi về máy rồi tải lại để kiểm tra.');return;
       }
-      revision=data[0].revision;pendingPayload=null;saving=false;
-      $('cloud-status').textContent='Đã lưu lúc '+new Date(data[0].updated_at).toLocaleTimeString();
+      revision=data.revision;pendingPayload=null;saving=false;
+      window.JOBFLOW_CLOUD.onSaved?.(data.payload);
+      $('cloud-status').textContent='Đã lưu lúc '+new Date(data.updated_at).toLocaleTimeString();
       dialog.close();
     } catch {
       failSave('Mất kết nối hoặc máy chủ từ chối lưu. Trạng thái có thể chưa được xác nhận. Hãy tải bản thay đổi về máy trước khi tải lại; không tự động ghi đè hoặc thử lại.');
@@ -39,15 +43,25 @@
     if (loaded || loading || !session) return;
     loading=true;message('Đang tải dữ liệu…');
     try {
-      const {data:membership,error:memberError}=await client.from('jobflow_members').select('email,role').maybeSingle().abortSignal(AbortSignal.timeout(15000));
-      if(memberError) throw memberError;
+      const membership=await api('load');
       if(!membership) {message('Email này chưa được cấp quyền. Hãy liên hệ quản trị viên.');await client.auth.signOut();return;}
-      const {data:row,error}=await client.from('jobflow_workspace').select('payload,revision').eq('id','main').single().abortSignal(AbortSignal.timeout(20000));
-      if(error || !row?.payload?.jobs || !row.payload.capacity || !row.payload.timeline) throw error || new Error('Dữ liệu chưa được khởi tạo.');
+      const row=membership;
+      if(!row?.payload?.jobs || !row.payload.capacity || !row.payload.timeline) throw new Error('Dữ liệu chưa được khởi tạo.');
       revision=row.revision;activeEmail=membership.email;
-      window.JOBFLOW_CLOUD={initialState:row.payload,email:membership.email,role:membership.role,save(payload){
+      window.JOBFLOW_CLOUD={initialState:row.payload,email:membership.email,role:membership.role,staffId:membership.staffId,permissions:membership.permissions,accessVersion:membership.accessVersion,
+        groups:membership.groups||[],members:membership.members||[],
+        async manage(action,args){
+          if(saving||blocked)throw new Error('Vui lòng chờ thay đổi hiện tại được lưu.');
+          saving=true;
+          try {
+            await api(action,{...args,revision});
+            const fresh=await api('load');revision=fresh.revision;
+            Object.assign(this,{groups:fresh.groups||[],members:fresh.members||[],permissions:fresh.permissions,accessVersion:fresh.accessVersion});
+            return fresh;
+          } finally {saving=false;}
+        },save(payload){
         if(saving||blocked) return false;
-        if(membership.role==='viewer') {alert('Tài khoản này chỉ có quyền xem.');return false;}
+        if(membership.role!=='admin'&&!Object.entries(this.permissions||{}).some(([key,value])=>key!=='jobManager'&&Number(value)>=2)) {alert('Tài khoản này chỉ có quyền xem.');return false;}
         if(new Blob([JSON.stringify(payload)]).size>7500000) {alert('Dữ liệu vượt giới hạn lưu 7,5 MB. Hãy giảm dung lượng tài liệu đính kèm.');return false;}
         pendingPayload=payload;saving=true;
         $('cloud-save-title').textContent='Đang lưu dữ liệu…';
@@ -66,10 +80,10 @@
       pollTimer=setInterval(async()=>{
         if(saving||blocked||document.hidden)return;
         try {
-          const {data,error}=await client.from('jobflow_workspace').select('revision').eq('id','main').maybeSingle().abortSignal(AbortSignal.timeout(10000));
-          if(error||!data) {$('cloud-status').textContent='Không thể kiểm tra dữ liệu mới';return;}
+          const data=await api('status');
+          if(data.accessVersion!==window.JOBFLOW_CLOUD.accessVersion){location.reload();return;}
           if(data.revision!==revision)$('cloud-status').textContent='Có dữ liệu mới — bấm Tải dữ liệu mới';
-        } catch {$('cloud-status').textContent='Mất kết nối';}
+        } catch {document.body.classList.add('cloud-locked');$('cloud-auth').hidden=false;message('Không xác minh được quyền truy cập. Tải lại để đăng nhập và kiểm tra quyền.');}
       },15000);
     } catch(error) {message('Không thể tải dữ liệu. '+(error?.message||'Kiểm tra kết nối rồi thử lại.'));}
     finally {loading=false;}
