@@ -62,3 +62,11 @@ Netlify: branch `main`, build `npm run build`, publish `public`. Build chép SDK
 - Group đang gán user không được xóa; cần gán lại user trước. Lịch sử thay đổi quyền được lưu riêng trong schema private.
 - Collaboration Manager chưa có trong ứng dụng và được ghi rõ là không khả dụng.
 - Bộ kiểm thử gồm hồi quy chức năng, UI quyền, cloud RPC và SQL với vai trò authenticated. Trình duyệt kiểm tra cục bộ bị chặn trong phiên triển khai; chưa kiểm tra trực quan hoặc đăng nhập bằng tài khoản thật.
+
+## Lưu Staff và Group Access
+
+- Form tạo/sửa Staff có Group Access. Lưu qua `jobflow_save_staff` trong một giao dịch: lưu staff, cập nhật tên trong các job/task và gán nhóm cùng thành công hoặc cùng hủy. Quyền ghi đè của user được giữ nguyên.
+- Chưa có email: lưu nhóm dự kiến trên staff, chưa cấp quyền đăng nhập. Khi thêm email, nhóm sẽ được gán. Account Owner giữ toàn quyền.
+- Lỗi mạng khi kiểm tra phiên chỉ báo trạng thái kết nối, không đưa về login hay làm mất form. Chỉ khóa truy cập khi máy chủ xác nhận quyền/phiên không còn hợp lệ.
+- Form đóng khi máy chủ xác nhận lưu; lỗi validation được hiển thị ngay trong form. Revision ngăn lần thử lại ghi đè bản đã được lưu nhưng phản hồi trước đó bị thất lạc.
+- Áp dụng migration `supabase/migrations/20260910072657_staff_save_group.sql` sau migration access groups, trước khi triển khai frontend mới. Kiểm thử `tests/staff-save.sql` trong transaction rollback.
