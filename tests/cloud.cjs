@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const assert=require('node:assert/strict');
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 async function setup(options={}) {
-  const nodes=new Map(),writes=[],classes=new Set();let appLoads=0,poll,staffCalls=0,refreshes=0;
+  const nodes=new Map(),writes=[],classes=new Set();let appLoads=0,poll,staffCalls=0,refreshes=0,clientOptions;
   function node(id){if(!nodes.has(id))nodes.set(id,{textContent:'',hidden:false,open:false,addEventListener(){},querySelectorAll(){return[];},showModal(){this.open=true;},close(){this.open=false;},elements:{email:{value:'member@example.invalid'},password:{value:'not-a-real-password'}},reportValidity(){return true;}});return nodes.get(id);}
   const membership=options.noMember?null:{email:'member@example.invalid',role:options.role||'editor',permissions:{jobs:options.role==='viewer'?1:2},accessVersion:1,groups:[],members:[]};
   const payload={jobs:[],capacity:{},timeline:{}};
@@ -18,13 +18,13 @@ async function setup(options={}) {
     }};return query;
   }};
   const document={hidden:false,getElementById:node,querySelector(){return null;},createElement(){return{};},body:{classList:{add(value){classes.add(value);},remove(value){classes.delete(value);}},appendChild(script){appLoads++;script.onload();}}};
-  const window={supabase:{createClient:()=>client},JOBFLOW_CONFIG:{url:'https://example.invalid',publishableKey:'test'},addEventListener(){}};
+  const window={supabase:{createClient:(url,key,options)=>(clientOptions=options,client)},JOBFLOW_CONFIG:{url:'https://example.invalid',publishableKey:'test'},addEventListener(){}};
   const sandbox={window,document,Blob,AbortSignal,URL,console,setTimeout,clearInterval,setInterval(fn){poll=fn;return 1;},alert(){},confirm(){return true;},location:{origin:'https://example.invalid',reload(){}}};
   vm.runInNewContext(fs.readFileSync('public/cloud.js','utf8'),sandbox);await flush();await flush();
-  return {window,nodes,writes,classes,poll:()=>poll(),get appLoads(){return appLoads;},get refreshes(){return refreshes;}};
+  return {window,nodes,writes,classes,poll:()=>poll(),get appLoads(){return appLoads;},get refreshes(){return refreshes;},get clientOptions(){return clientOptions;}};
 }
 (async()=>{
-  let app=await setup();assert.equal(app.appLoads,1);assert.ok(app.window.JOBFLOW_CLOUD.initialState);
+  let app=await setup();assert.equal(app.appLoads,1);assert.ok(app.window.JOBFLOW_CLOUD.initialState);assert.equal(app.clientOptions.db.retry,false);
   assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),true);assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),false);await flush();assert.equal(app.writes.length,1);assert.equal(app.writes[0].revision,1);assert.equal(app.writes[0].accessVersion,1);assert.equal(app.nodes.get('cloud-saving').open,false);
   app=await setup({conflict:true});app.window.JOBFLOW_CLOUD.save({jobs:[]});await flush();assert.equal(app.nodes.get('cloud-saving').open,true);assert.equal(app.nodes.get('cloud-recovery').hidden,false);assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),false);
   app=await setup({error:true});app.window.JOBFLOW_CLOUD.save({jobs:[]});await flush();assert.equal(app.nodes.get('cloud-recovery').hidden,false);assert.equal(app.window.JOBFLOW_CLOUD.save({jobs:[]}),false);
