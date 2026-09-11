@@ -5,7 +5,7 @@ eval(harness+String.raw`
 const a=sandbox.audit;
 assert.ok(a.state.capacity.members.every(m=>m.status==='active'&&m.email===''));
 const staff=a.renderStaffSettings();assert.ok(staff.includes('<th>Status</th>'));assert.ok(staff.includes('<th>Email</th>'));
-a.setSettingsSection('privileges');let html=a.renderSettings();assert.ok(html.includes('Group Access'));assert.ok(html.includes('Effective Permission'));
+a.setSettingsSection('privileges');let html=a.renderSettings();assert.ok(html.includes('Group Access'));assert.ok(html.includes('Notifications'));assert.ok(html.includes('Effective Permission'));
 const matrix=a.permissionMatrix({documents:0},{documents:3,jobs:2},true);
 assert.ok(matrix.includes('Use Group Access · Full Access'));assert.ok(matrix.includes('data-effective-key="documents">No Access'));
 const elementsForm={};for(const key of ['clients','jobs','completedJobs','archivedJobs','completion','documents','notes','phases','milestones','costs','billings','financials','reports','jobManager','schedule','staff','templates','boardViews'])elementsForm['permission-'+key]={value:key==='documents'?'0':'inherit'};
