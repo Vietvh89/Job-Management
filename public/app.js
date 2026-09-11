@@ -356,6 +356,38 @@
     return project;
   }
 
+  function workOrderKey(value) {
+    return String(value || "").trim().toLocaleLowerCase().replace(/\s+/g," ");
+  }
+
+  function jobTemplateForOrder(job) {
+    const ids=[job.templateId,job.templateSnapshot?.id].filter(Boolean);
+    const names=[job.template,job.templateSnapshot?.name].map(workOrderKey).filter(Boolean);
+    return state.jobTemplates.find(template=>ids.includes(template.id))
+      || state.jobTemplates.find(template=>names.includes(workOrderKey(template.name)))
+      || job.templateSnapshot
+      || null;
+  }
+
+  function orderedTemplatePairs(items,templateItems,referenceKey,itemLabel,templateLabel) {
+    const source=Array.from(items||[]),templates=Array.from(templateItems||[]);
+    const byId=new Map(templates.map((item,index)=>[item.id,index]));
+    const byName=new Map();
+    templates.forEach((item,index)=>{const key=workOrderKey(templateLabel(item));if(!byName.has(key))byName.set(key,[]);byName.get(key).push(index);});
+    const nameOccurrences=new Map();
+    return source.map((item,sourceIndex)=>{
+      let templateIndex=byId.has(item?.[referenceKey])?byId.get(item[referenceKey]):-1;
+      if(templateIndex<0){
+        const key=workOrderKey(itemLabel(item)),occurrence=nameOccurrences.get(key)||0,positions=byName.get(key)||[];
+        templateIndex=positions[occurrence]??-1;nameOccurrences.set(key,occurrence+1);
+      }
+      return {item,templateItem:templateIndex>=0?templates[templateIndex]:null,templateIndex,sourceIndex};
+    }).sort((a,b)=>{
+      if(a.templateIndex>=0&&b.templateIndex>=0)return a.templateIndex-b.templateIndex||a.sourceIndex-b.sourceIndex;
+      if(a.templateIndex>=0)return -1;if(b.templateIndex>=0)return 1;return a.sourceIndex-b.sourceIndex;
+    });
+  }
+
   function showToast(message) {
     const toast = $("#toast");
     toast.textContent = message;
@@ -485,7 +517,7 @@
   function filteredJobs() {
     return state.jobs.filter(job => {
       const groupedStatus=jobManagerStatus(job);
-      const sectionMatch = jobSection === "all" || jobSection === "calendar" || jobSection === "board" ? true : jobSection === "mine" ? job.owner === currentStaffName() : jobFilter!=="All statuses" || !["Completed","Cancelled"].includes(groupedStatus);
+      const sectionMatch = jobSection === "mine" ? job.owner === currentStaffName() : true;
       const filterMatch = jobFilter === "All statuses" || groupedStatus === jobFilter;
       const due = new Date(`${job.due}T12:00:00`);
       const start = new Date(`${job.start}T12:00:00`);
@@ -728,7 +760,7 @@
     const jobs = filteredJobs();
     const boardView=activeBoardView();
     const boardSteps=(boardView?.steps||[]).filter(step=>step.visible);
-    const baseJobs = state.jobs.filter(job => jobSection === "mine" ? job.owner === currentStaffName() : jobSection === "active" && jobFilter==="All statuses" ? !["Completed","Cancelled"].includes(jobManagerStatus(job)) : true);
+    const baseJobs = state.jobs.filter(job => jobSection === "mine" ? job.owner === currentStaffName() : true);
     const counts = {
       all: baseJobs.length,
       starting: baseJobs.filter(job => new Date(`${job.start}T12:00:00`) >= new Date(`${todayKey()}T12:00:00`) && new Date(`${job.start}T12:00:00`) <= new Date(Date.now()+7*86400000)).length,
@@ -1545,12 +1577,12 @@
     const project={jobId:id,expanded:true,items:[]},base=timelineDay(data.start);
     for(const phase of template?.phases||[]){
       const phaseId=crypto.randomUUID();
-      project.items.push({id:phaseId,type:"phase",name:phase.name,owner:job.owner,start:base+phase.startOffset,duration:phase.duration,progress:0,status:"Planned",dependency:""});
+      project.items.push({id:phaseId,templatePhaseId:phase.id,type:"phase",name:phase.name,owner:job.owner,start:base+phase.startOffset,duration:phase.duration,progress:0,status:"Planned",dependency:""});
       for(const task of phase.tasks){
         const taskId=crypto.randomUUID(),taskStart=base+phase.startOffset+task.startOffset,taskDue=dateFromTimelineDay(taskStart+task.duration-1);
-        const checklist=(task.checklist||[]).map(item=>({id:crypto.randomUUID(),text:item.text,completed:false}));
-        const subtasks=(task.subtasks||[]).map(subtask=>({id:crypto.randomUUID(),name:subtask.name,owner:subtask.owner==="Job owner"?job.owner:subtask.owner,due:dateFromTimelineDay(taskStart+(subtask.dueOffset||0)),completed:false,checklist:(subtask.checklist||[]).map(item=>({id:crypto.randomUUID(),text:item.text,completed:false}))}));
-        project.items.push({id:taskId,type:"task",name:task.name,owner:job.owner,start:taskStart,due:taskDue,duration:task.duration,estimatedHours:task.estimatedHours,parentPhaseId:phaseId,progress:0,status:"Planned",dependency:"",checklist,subtasks});
+        const checklist=(task.checklist||[]).map(item=>({id:crypto.randomUUID(),templateChecklistId:item.id,text:item.text,completed:false}));
+        const subtasks=(task.subtasks||[]).map(subtask=>({id:crypto.randomUUID(),templateSubtaskId:subtask.id,name:subtask.name,owner:subtask.owner==="Job owner"?job.owner:subtask.owner,due:dateFromTimelineDay(taskStart+(subtask.dueOffset||0)),completed:false,checklist:(subtask.checklist||[]).map(item=>({id:crypto.randomUUID(),templateChecklistId:item.id,text:item.text,completed:false}))}));
+        project.items.push({id:taskId,templateTaskId:task.id,type:"task",name:task.name,owner:job.owner,start:taskStart,due:taskDue,duration:task.duration,estimatedHours:task.estimatedHours,parentPhaseId:phaseId,progress:0,status:"Planned",dependency:"",checklist,subtasks});
         job.tasks.push([task.name,false,`${task.estimatedHours}h`,taskId]);
       }
     }
@@ -1725,16 +1757,19 @@
 
   function renderJobPhases(job) {
     const project = ensureJobPhaseHierarchy(job);
-    const phases = project.items.filter(item => item.type === "phase").sort((a,b) => a.start - b.start);
-    const checklistMarkup=(items,taskId,subtaskId="")=>items.map(item=>`<div class="checklist-row"><input type="checkbox" data-work-check="${item.id}" data-task-id="${taskId}" data-subtask-id="${subtaskId}" data-job-id="${job.id}" ${item.completed?"checked":""} aria-label="${item.completed?"Uncheck":"Check"} ${esc(item.text)}"><span class="work-type-badge checklist-badge">Checklist</span><span class="checklist-copy ${item.completed?"completed":""}">${esc(item.text)}</span><span class="nested-row-actions"><button type="button" class="text-btn" data-edit-checklist="${item.id}" data-task-id="${taskId}" data-subtask-id="${subtaskId}" data-job-id="${job.id}">Edit</button><button type="button" class="text-btn danger-text" data-delete-checklist="${item.id}" data-task-id="${taskId}" data-subtask-id="${subtaskId}" data-job-id="${job.id}">Delete</button></span></div>`).join("");
-    const phaseCards = phases.map(phase => {
-      const tasks = project.items.filter(item => item.type === "task" && item.parentPhaseId === phase.id).sort((a,b) => a.start - b.start);
+    const template=jobTemplateForOrder(job);
+    const phasePairs=orderedTemplatePairs(project.items.filter(item=>item.type==="phase"),template?.phases||[],"templatePhaseId",item=>item.name,item=>item.name);
+    const checklistMarkup=(items,templateItems,taskId,subtaskId="")=>orderedTemplatePairs(items,templateItems,"templateChecklistId",item=>item.text,item=>item.text).map(({item})=>`<div class="checklist-row"><input type="checkbox" data-work-check="${item.id}" data-task-id="${taskId}" data-subtask-id="${subtaskId}" data-job-id="${job.id}" ${item.completed?"checked":""} aria-label="${item.completed?"Uncheck":"Check"} ${esc(item.text)}"><span class="work-type-badge checklist-badge">Checklist</span><span class="checklist-copy ${item.completed?"completed":""}">${esc(item.text)}</span><span class="nested-row-actions"><button type="button" class="text-btn" data-edit-checklist="${item.id}" data-task-id="${taskId}" data-subtask-id="${subtaskId}" data-job-id="${job.id}">Edit</button><button type="button" class="text-btn danger-text" data-delete-checklist="${item.id}" data-task-id="${taskId}" data-subtask-id="${subtaskId}" data-job-id="${job.id}">Delete</button></span></div>`).join("");
+    const phaseCards = phasePairs.map(({item:phase,templateItem:templatePhase}) => {
+      const taskPairs=orderedTemplatePairs(project.items.filter(item=>item.type==="task"&&item.parentPhaseId===phase.id),templatePhase?.tasks||[],"templateTaskId",item=>item.name,item=>item.name);
+      const tasks=taskPairs.map(pair=>pair.item);
       const progress = tasks.length ? Math.round(tasks.reduce((sum,task) => sum + task.progress,0) / tasks.length) : phase.progress;
       const status = progress === 100 ? "Complete" : progress > 0 ? "In progress" : "Planned";
-      const taskRows = tasks.length ? tasks.map(task => {
+      const taskRows = tasks.length ? taskPairs.map(({item:task,templateItem:templateTask}) => {
         const taskIndex = job.tasks.findIndex(candidate => candidate[3]===task.id);
-        const subtasks=(task.subtasks||[]).map(subtask=>`<article class="subtask-row"><input type="checkbox" data-subtask-check="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}" ${subtask.completed?"checked":""} aria-label="${subtask.completed?"Reopen":"Complete"} ${esc(subtask.name)}"><span class="subtask-copy"><span class="work-type-badge subtask-badge">Sub-task</span><strong><button class="text-btn" data-edit-subtask="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">${esc(subtask.name)}</button></strong></span><span class="subtask-owner">${esc(subtask.owner)}</span><time class="subtask-deadline" datetime="${subtask.due}">${shortDate(subtask.due)}</time><span class="nested-row-actions"><button type="button" class="text-btn" data-edit-subtask="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">Edit</button><button type="button" class="text-btn danger-text" data-delete-subtask="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">Delete</button></span>${subtask.checklist?.length?`<div class="subtask-checklist-panel"><div class="nested-section-label">Checklist under ${esc(subtask.name)}</div><div class="work-check-list">${checklistMarkup(subtask.checklist,task.id,subtask.id)}</div></div>`:""}<button class="text-btn nested-add subtask-add-checklist" data-add-subtask-checklist="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">+ Checklist</button></article>`).join("");
-        return `<section class="phase-task-block"><div class="phase-task-row"><input class="task-check" type="checkbox" ${task.progress===100?"checked":""} data-job-id="${job.id}" data-task="${taskIndex}" data-timeline-task="${task.id}" aria-label="${task.progress===100?"Reopen":"Complete"} ${esc(task.name)}"><span class="phase-task-name"><strong><button class="text-btn" data-manage-task="${task.id}" data-job-id="${job.id}">${esc(task.name)}</button></strong><small>Task · ${task.subtasks.length} sub-task${task.subtasks.length===1?"":"s"} · ${task.checklist.length} checklist item${task.checklist.length===1?"":"s"}</small></span><span>${esc(task.owner)}</span><span>${shortDate(task.due)}</span><span><span class="status ${statusClass(task.status)}">${task.status}</span><small>${task.progress}% complete</small></span><span class="task-row-actions"><button type="button" class="icon-btn" data-manage-task="${task.id}" data-job-id="${job.id}" aria-label="Edit ${esc(task.name)}">${icon("more")}</button><button type="button" class="icon-btn danger-text" data-delete-work-item="${task.id}" data-job-id="${job.id}" aria-label="Delete ${esc(task.name)}">${icon("x")}</button></span></div><div class="task-breakdown">${task.checklist.length?`<div class="task-checklist"><div class="nested-section-label">Task checklist</div><div class="work-check-list">${checklistMarkup(task.checklist,task.id)}</div></div>`:""}${subtasks}<div class="task-nested-actions"><button class="text-btn" data-add-subtask="${task.id}" data-job-id="${job.id}">+ Sub-task</button><button class="text-btn" data-add-task-checklist="${task.id}" data-job-id="${job.id}">+ Checklist</button></div></div></section>`;
+        const subtaskPairs=orderedTemplatePairs(task.subtasks||[],templateTask?.subtasks||[],"templateSubtaskId",item=>item.name,item=>item.name);
+        const subtasks=subtaskPairs.map(({item:subtask,templateItem:templateSubtask})=>`<article class="subtask-row"><input type="checkbox" data-subtask-check="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}" ${subtask.completed?"checked":""} aria-label="${subtask.completed?"Reopen":"Complete"} ${esc(subtask.name)}"><span class="subtask-copy"><span class="work-type-badge subtask-badge">Sub-task</span><strong><button class="text-btn" data-edit-subtask="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">${esc(subtask.name)}</button></strong></span><span class="subtask-owner">${esc(subtask.owner)}</span><time class="subtask-deadline" datetime="${subtask.due}">${shortDate(subtask.due)}</time><span class="nested-row-actions"><button type="button" class="text-btn" data-edit-subtask="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">Edit</button><button type="button" class="text-btn danger-text" data-delete-subtask="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">Delete</button></span>${subtask.checklist?.length?`<div class="subtask-checklist-panel"><div class="nested-section-label">Checklist under ${esc(subtask.name)}</div><div class="work-check-list">${checklistMarkup(subtask.checklist,templateSubtask?.checklist||[],task.id,subtask.id)}</div></div>`:""}<button class="text-btn nested-add subtask-add-checklist" data-add-subtask-checklist="${subtask.id}" data-task-id="${task.id}" data-job-id="${job.id}">+ Checklist</button></article>`).join("");
+        return `<section class="phase-task-block"><div class="phase-task-row"><input class="task-check" type="checkbox" ${task.progress===100?"checked":""} data-job-id="${job.id}" data-task="${taskIndex}" data-timeline-task="${task.id}" aria-label="${task.progress===100?"Reopen":"Complete"} ${esc(task.name)}"><span class="phase-task-name"><strong><button class="text-btn" data-manage-task="${task.id}" data-job-id="${job.id}">${esc(task.name)}</button></strong><small>Task · ${task.subtasks.length} sub-task${task.subtasks.length===1?"":"s"} · ${task.checklist.length} checklist item${task.checklist.length===1?"":"s"}</small></span><span>${esc(task.owner)}</span><span>${shortDate(task.due)}</span><span><span class="status ${statusClass(task.status)}">${task.status}</span><small>${task.progress}% complete</small></span><span class="task-row-actions"><button type="button" class="icon-btn" data-manage-task="${task.id}" data-job-id="${job.id}" aria-label="Edit ${esc(task.name)}">${icon("more")}</button><button type="button" class="icon-btn danger-text" data-delete-work-item="${task.id}" data-job-id="${job.id}" aria-label="Delete ${esc(task.name)}">${icon("x")}</button></span></div><div class="task-breakdown">${task.checklist.length?`<div class="task-checklist"><div class="nested-section-label">Task checklist</div><div class="work-check-list">${checklistMarkup(task.checklist,templateTask?.checklist||[],task.id)}</div></div>`:""}${subtasks}<div class="task-nested-actions"><button class="text-btn" data-add-subtask="${task.id}" data-job-id="${job.id}">+ Sub-task</button><button class="text-btn" data-add-task-checklist="${task.id}" data-job-id="${job.id}">+ Checklist</button></div></div></section>`;
       }).join("") : `<div class="phase-empty-task">No tasks in this phase yet.</div>`;
       return `<article class="phase-card"><div class="phase-card-head"><div class="phase-heading"><span class="phase-folder">${icon("list")}</span><div><h4><button class="text-btn" data-edit-item="${phase.id}" data-project="${job.id}">${esc(phase.name)}</button></h4><small>Phase · ${tasks.length} task${tasks.length===1?"":"s"}</small></div></div><div class="phase-summary"><span>${esc(phase.owner)}</span><span>${phase.duration} days</span><span class="status ${statusClass(status)}">${progress}% · ${status}</span><button class="button ghost compact-button" data-add-phase-task="${phase.id}" data-job-id="${job.id}">${icon("plus")}Task</button><button class="icon-btn danger-text" type="button" data-delete-work-item="${phase.id}" data-job-id="${job.id}" aria-label="Delete ${esc(phase.name)}">${icon("x")}</button></div></div><div class="phase-task-head"><span>Task</span><span>Owner</span><span>Deadline</span><span>Progress</span><span>Actions</span></div><div class="phase-task-list">${taskRows}</div></article>`;
     }).join("");
