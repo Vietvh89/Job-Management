@@ -1082,6 +1082,7 @@
   let staffSearchSelection = "";
   let staffRankFilter = "All ranks";
   let staffDepartmentFilter = "All departments";
+  let notificationSettingsSection = "default";
 
   function seedJobTemplates() {
     if(Array.isArray(state.jobTemplates))return;
@@ -1334,7 +1335,7 @@
   const canAccess=(key,level=1)=>accessLevel(key)>=level;
   let selectedPrivilegeStaff='',selectedPrivilegeEmail='',privilegeDraft=null,groupDraft=null;
   const accessRules=[
-    ['[data-new-staff],[data-edit-staff],[data-delete-staff],[data-new-template],[data-edit-template],[data-create-board-view],[data-edit-board-view],#staff-form,#template-editor,#board-view-form,#template-board-view-form','owner',3],
+    ['[data-new-staff],[data-edit-staff],[data-delete-staff],[data-new-template],[data-edit-template],[data-create-board-view],[data-edit-board-view],#staff-form,#template-editor,#board-view-form,#template-board-view-form,#notification-default-form,#notification-custom-form,[data-notification-section],[data-notification-reset],[data-delete-notification-rule],[data-notification-custom-enabled]','owner',3],
     ['#job-form,#recurring-form,#job-info-form,[data-review-deadline],[data-job-action],[data-use-template],#new-job-btn,#new-recurring-btn','jobs',2],
     ['[data-job-action="complete"],[data-task],[data-subtask-check],[data-work-check],[data-timeline-progress]','completion',2],
     ['[data-job-action="cancel"]','archivedJobs',2],
@@ -1391,6 +1392,31 @@
   function renderAccessGroups(){
     if(!isAccountOwner())return '<section class="card"><p>Only Account Owners can manage groups.</p></section>';
     return `<section class="card access-card"><div class="card-head"><div><h2>Group Access</h2><p>Create reusable permission templates. Changes apply to every assigned user; individual overrides stay in effect.</p></div><button class="button primary" data-new-access-group>+ Group Access</button></div><div class="access-group-grid">${accessGroups().map(g=>`<article class="access-group"><h3>${esc(g.name)}</h3><p>${accessMembers().filter(m=>m.group_id===g.id).length} assigned users</p><p>${g.permissions.jobManager==='all'?'View all jobs':'View assigned jobs'}</p><div><button class="button ghost" data-edit-access-group="${g.id}">Edit permissions</button><button class="text-btn danger-text" data-delete-access-group="${g.id}" ${accessMembers().some(m=>m.group_id===g.id)?'disabled':''}>Delete</button></div></article>`).join('')||'<p>No groups yet. Create a Group Access template to begin.</p>'}</div></section>`;
+  }
+
+  const notificationCatalog=[
+    ['assignJob','Assign to Job',['Notify Staff','Notify Job Manager']],
+    ['newTask','New Job Task',['Notify Staff Assigned to Job','Notify Staff Assigned to Task']],
+    ['newDocument','New Job Document',['Notify Staff Assigned to Job','Notify Job Manager']],
+    ['milestoneComplete','Milestone Completion',['Notify Staff Assigned to Job','Notify Job Manager']],
+    ['taskComplete','Task Completion',['Notify Staff Assigned to Job','Notify Job Manager']],
+    ['statusChanged','Job Status Changed',['Notify Staff Assigned to Job','Notify Job Manager']],
+    ['deadlineReview','Deadline Review Due',['Notify Job Manager','Notify Job Owner']]
+  ];
+  function notificationSettings(){
+    if(!state.notificationSettings||typeof state.notificationSettings!=='object')state.notificationSettings={version:1,defaults:{},custom:[]};
+    if(!state.notificationSettings.defaults||typeof state.notificationSettings.defaults!=='object')state.notificationSettings.defaults={};
+    if(!Array.isArray(state.notificationSettings.custom))state.notificationSettings.custom=[];
+    for(const [key] of notificationCatalog)if(!state.notificationSettings.defaults[key])state.notificationSettings.defaults[key]={enabled:['assignJob','newTask'].includes(key),recipientA:true,recipientB:false,team:''};
+    return state.notificationSettings;
+  }
+  function renderNotifications(){
+    if(!isAccountOwner())return '<section class="card"><p>Only Account Owners can manage notifications.</p></section>';
+    const settings=notificationSettings(),teams=[...new Set(state.capacity.members.map(member=>member.department).filter(Boolean))].sort();
+    const teamOptions=value=>`<option value="">None</option>${teams.map(team=>`<option value="${esc(team)}" ${value===team?'selected':''}>${esc(team)}</option>`).join('')}`;
+    const defaults=`<form id="notification-default-form"><div class="notification-heading"><div><h2>Default Notifications</h2><p>Choose which job events create notifications and who receives them.</p></div><button class="button primary" type="submit">Save notifications</button></div><div class="notification-rule-list">${notificationCatalog.map(([key,label,recipients])=>{const rule=settings.defaults[key];return `<article class="notification-rule"><label class="notification-event-toggle"><input type="checkbox" name="${key}-enabled" ${rule.enabled?'checked':''}><span class="switch-track" aria-hidden="true"></span><strong>${esc(label)}</strong></label><div class="notification-recipients"><label><input type="checkbox" name="${key}-recipientA" ${rule.recipientA?'checked':''}> ${esc(recipients[0])}</label><label><input type="checkbox" name="${key}-recipientB" ${rule.recipientB?'checked':''}> ${esc(recipients[1])}</label><label class="notification-team">Notify Team<select name="${key}-team">${teamOptions(rule.team)}</select></label></div></article>`;}).join('')}</div><div class="notification-save-bar"><button class="button ghost" type="button" data-notification-reset>Reset defaults</button><button class="button primary" type="submit">Save notifications</button></div></form>`;
+    const custom=`<div class="notification-heading"><div><h2>Custom Notifications</h2><p>Create additional notification rules for specific job events and recipients.</p></div></div><form id="notification-custom-form" class="notification-custom-form"><label>Rule name<input name="name" maxlength="100" placeholder="e.g. Notify Tax managers" required></label><label>Event<select name="event">${notificationCatalog.map(([key,label])=>`<option value="${key}">${esc(label)}</option>`).join('')}</select></label><label>Recipient<select name="recipient"><option>Job owner</option><option>Assigned staff</option><option>Job manager</option><option>Account owners</option></select></label><label>Team<select name="team">${teamOptions('')}</select></label><button class="button primary" type="submit">+ Custom notification</button></form><div class="custom-notification-list">${settings.custom.map(rule=>`<article><div><strong>${esc(rule.name)}</strong><small>${esc(notificationCatalog.find(([key])=>key===rule.event)?.[1]||rule.event)} · ${esc(rule.recipient)}${rule.team?` · ${esc(rule.team)}`:''}</small></div><label class="notification-event-toggle compact"><input type="checkbox" data-notification-custom-enabled="${rule.id}" ${rule.enabled?'checked':''}><span class="switch-track" aria-hidden="true"></span><span>${rule.enabled?'Active':'Paused'}</span></label><button class="text-btn danger-text" data-delete-notification-rule="${rule.id}">Delete</button></article>`).join('')||'<div class="empty-state"><h3>No custom notifications</h3><p>Add a rule when the default notification settings are not specific enough.</p></div>'}</div>`;
+    return `<section class="card notification-settings"><div class="card-head"><div><h2>Notifications</h2><p>Manage job notifications such as staff assignment and custom notifications.</p></div></div><div class="notification-layout"><nav aria-label="Notification settings"><button class="${notificationSettingsSection==='default'?'active':''}" data-notification-section="default">Default</button><button class="${notificationSettingsSection==='custom'?'active':''}" data-notification-section="custom">Custom</button></nav><div class="notification-content">${notificationSettingsSection==='custom'?custom:defaults}</div></div></section>`;
   }
   function openAccessGroup(id=''){
     if(!isAccountOwner())return;
@@ -1472,9 +1498,9 @@
 
   function renderSettings() {
     const actions=settingsSection==="templates"?'<button class="button primary" data-new-template>+ Template</button>':settingsSection==="staff"?'<button class="button primary" data-new-staff>+ Staff member</button>':settingsSection==="board-views"?'<button class="button primary" data-create-board-view>+ Board view</button>':'';
-    const sections={templates:renderTemplateSettings,staff:renderStaffSettings,"board-views":renderBoardViewSettings,privileges:renderPrivileges,"group-access":renderAccessGroups};
+    const sections={templates:renderTemplateSettings,staff:renderStaffSettings,"board-views":renderBoardViewSettings,privileges:renderPrivileges,"group-access":renderAccessGroups,notifications:renderNotifications};
     if(!sections[settingsSection])settingsSection="templates";
-    return `${pageHead("Administration","Settings","Manage reusable templates, staff and Board workflows.",actions)}<nav class="job-tabs" aria-label="Settings sections">${[["templates","Templates"],["staff","Staff master"],["board-views","Board views"],...(isAccountOwner()?[["privileges","Privileges"],["group-access","Group Access"]]:[])].filter(([key])=>isAccountOwner()||canAccess(key==="board-views"?"boardViews":key)).map(([key,label])=>`<button class="job-tab ${settingsSection===key?"active":""}" data-settings-section="${key}">${label}</button>`).join("")}</nav>${sections[settingsSection]()}`;
+    return `${pageHead("Administration","Settings","Manage reusable templates, staff, Board workflows and notifications.",actions)}<nav class="job-tabs" aria-label="Settings sections">${[["templates","Templates"],["staff","Staff master"],["board-views","Board views"],...(isAccountOwner()?[["privileges","Privileges"],["group-access","Group Access"],["notifications","Notifications"]]:[])].filter(([key])=>isAccountOwner()||canAccess(key==="board-views"?"boardViews":key)).map(([key,label])=>`<button class="job-tab ${settingsSection===key?"active":""}" data-settings-section="${key}">${label}</button>`).join("")}</nav>${sections[settingsSection]()}`;
   }
 
   function openStaffEditor(memberId="") {
@@ -1613,6 +1639,9 @@
   document.addEventListener("click",event=>{
     const target=event.target;
     const settingsTab=target.closest("[data-settings-section]");if(settingsTab){if(settingsTab.dataset.settingsSection===settingsSection)return;if(settingsSection==="templates"&&templateHasUnsavedChanges()&&!window.confirm("Discard unsaved template edits?"))return;settingsSection=settingsTab.dataset.settingsSection;setTemplateDraft(null);render("settings");return;}
+    const notificationTab=target.closest('[data-notification-section]');if(notificationTab){notificationSettingsSection=notificationTab.dataset.notificationSection;render('settings');return;}
+    if(target.closest('[data-notification-reset]')){if(!window.confirm('Reset all default notification rules?'))return;state.notificationSettings={version:1,defaults:{},custom:notificationSettings().custom};notificationSettings();if(!save())return;render('settings');showToast('Default notifications reset.');return;}
+    const deleteNotification=target.closest('[data-delete-notification-rule]');if(deleteNotification){const settings=notificationSettings(),rule=settings.custom.find(item=>item.id===deleteNotification.dataset.deleteNotificationRule);if(!rule||!window.confirm(`Delete custom notification “${rule.name}”?`))return;settings.custom=settings.custom.filter(item=>item.id!==rule.id);if(!save())return;render('settings');showToast('Custom notification deleted.');return;}
     if(target.closest("[data-new-staff]")){openStaffEditor();return;}
     const editStaff=target.closest("[data-edit-staff]");if(editStaff){openStaffEditor(editStaff.dataset.editStaff);return;}
     const deleteStaff=target.closest("[data-delete-staff]");if(deleteStaff){const member=state.capacity.members.find(item=>item.id===deleteStaff.dataset.deleteStaff);if(!member)return;const assigned=state.jobs.some(job=>job.owner===member.shortName||job.team?.includes(member.shortName))||state.timeline.projects.some(project=>project.items.some(item=>item.owner===member.shortName))||member.allocations.length;if(assigned){showToast("This staff member is assigned to jobs or scheduled work and cannot be deleted.");return;}if(!window.confirm(`Delete ${member.shortName}?`))return;state.capacity.members=state.capacity.members.filter(item=>item.id!==member.id);if(!save())return;render("settings");showToast("Staff member deleted.");return;}
@@ -1643,6 +1672,7 @@
   });
   document.addEventListener("input",event=>{if(event.target.closest("#template-editor"))readTemplateDraft();});
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="template"],#job-form [name="start"]'))updateTemplatePreview(true);if(event.target.matches('#board-view-form [name="templateIds"]')){readBoardViewDraft();updateBoardViewScopeSummary();event.target.closest("label")?.querySelector("b")?.replaceChildren(event.target.checked?"Included":"Add");}});
+  document.addEventListener("change",event=>{const id=event.target.dataset.notificationCustomEnabled;if(!id)return;const rule=notificationSettings().custom.find(item=>item.id===id);if(!rule)return;const previous=rule.enabled;rule.enabled=event.target.checked;if(!save()){rule.enabled=previous;event.target.checked=previous;return;}render('settings');showToast(rule.enabled?'Custom notification enabled.':'Custom notification paused.');});
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="recurring"],#job-info-form [name="recurring"]'))updateRecurringFields(event.target.form);});
   document.addEventListener("submit",event=>{
     if(event.target.id!=="board-view-form")return;
@@ -1668,6 +1698,18 @@
   });
   document.addEventListener("submit",event=>{if(event.target.id!=="template-board-view-form")return;event.preventDefault();const data=new FormData(event.target);state.jobTemplates.forEach(template=>{template.boardViewId=String(data.get(`template-${template.id}`)||"");});if(!save())return;render("settings");showToast("Template Board views saved.");});
   document.addEventListener("submit",event=>{if(event.target.id!=="template-editor")return;event.preventDefault();readTemplateDraft();const error=validateTemplate(templateDraft);if(error){showToast(error);return;}const copy=structuredClone(templateDraft);copy.name=copy.name.trim();const index=state.jobTemplates.findIndex(t=>t.id===copy.id);if(index<0)state.jobTemplates.push(copy);else state.jobTemplates[index]=copy;if(!save())return;setTemplateDraft(structuredClone(copy));render("settings");showToast("Template saved for future jobs.");});
+  document.addEventListener("submit",event=>{
+    if(event.target.id==='notification-default-form'){
+      event.preventDefault();const form=event.target,settings=notificationSettings();
+      for(const [key] of notificationCatalog)settings.defaults[key]={enabled:Boolean(form.elements[`${key}-enabled`]?.checked),recipientA:Boolean(form.elements[`${key}-recipientA`]?.checked),recipientB:Boolean(form.elements[`${key}-recipientB`]?.checked),team:form.elements[`${key}-team`]?.value||''};
+      if(!save())return;render('settings');showToast('Notification settings saved.');return;
+    }
+    if(event.target.id==='notification-custom-form'){
+      event.preventDefault();const data=Object.fromEntries(new FormData(event.target)),name=String(data.name||'').trim();if(!name){showToast('Enter a custom notification name.');return;}
+      notificationSettings().custom.push({id:crypto.randomUUID(),name,event:String(data.event||'assignJob'),recipient:String(data.recipient||'Job owner'),team:String(data.team||''),enabled:true});
+      if(!save())return;render('settings');showToast('Custom notification created.');
+    }
+  });
   document.addEventListener("submit",async event=>{
     if(event.target.id!=="staff-form")return;
     event.preventDefault();event.stopImmediatePropagation();
