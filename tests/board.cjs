@@ -21,6 +21,9 @@ assert.equal(a.normalizeViewJobs(target,[template.id]),1);assert.equal(jobs[1].s
 a.setJobSection('calendar');a.setTemplateFilter(template.id);assert.equal(a.filteredJobs().length,jobs.length);assert.ok(a.filteredJobs().every(j=>j.templateId===template.id));
 a.setTemplateFilter('');assert.ok(a.filteredJobs().length>jobs.length);
 a.setJobSection('active');
+jobs[1].status='Cancelled';a.setTemplateFilter(template.id);a.setJobFilter('All statuses');
+assert.deepEqual(Array.from(a.filteredJobs(),item=>item.id).sort(),Array.from(jobs,item=>item.id).sort(),'All statuses must include cancelled jobs in the selected template');
+a.setTemplateFilter('');
 for(const status of ['Planning','In progress','On hold','Completed','Cancelled']){
   a.setJobFilter(status);
   const actual=Array.from(a.filteredJobs(),item=>item.id).sort();
