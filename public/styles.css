@@ -103,6 +103,10 @@ kbd { margin-left: auto; padding: 2px 7px; border: 1px solid #d6dee5; border-bot
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, .72fr); gap: 20px; }
 .dashboard-filter-card { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)) auto; align-items: end; gap: 10px; margin-bottom: 18px; padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
 .dashboard-filter-card label { display: grid; gap: 5px; color: var(--muted); font-size: .72rem; font-weight: 700; text-transform: capitalize; }
+.dashboard-filter-field { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: .72rem; font-weight: 700; }
+.dashboard-filter-field .search-picker { min-width: 0; width: 100%; }
+.dashboard-filter-field .toolbar-input { height: 38px; }
+.dashboard-filter-field .search-selection-chip { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dashboard-filter-card select { min-width: 0; height: 38px; padding: 0 30px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font-size: .78rem; }
 .dashboard-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .dashboard-analysis-grid { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 18px; margin-bottom: 18px; }
@@ -126,6 +130,7 @@ kbd { margin-left: auto; padding: 2px 7px; border: 1px solid #d6dee5; border-bot
 .dashboard-wide { margin-bottom: 18px; }
 .compact-dashboard-section { overflow: hidden; }
 .dashboard-section-actions { display: flex; align-items: center; gap: 7px; }
+.dashboard-list-count { color: var(--muted); font-size: .72rem; white-space: nowrap; }
 .dashboard-section-toolbar { display: grid; grid-template-columns: minmax(220px,1fr) minmax(170px,240px) auto; align-items: center; gap: 10px; padding: 11px 15px; border-bottom: 1px solid var(--line); background: #f8fafb; }
 .dashboard-section-toolbar input,.dashboard-section-toolbar select { width: 100%; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); font-size: .76rem; }
 .dashboard-section-toolbar > span { color: var(--muted); font-size: .7rem; white-space: nowrap; }
