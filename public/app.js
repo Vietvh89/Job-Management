@@ -478,19 +478,20 @@
 
   function jobsTable(jobs, compact = false) {
     if (!jobs.length) return empty("briefcase", "No matching jobs", "Try another search or status filter.");
-    if (compact) return `<table class="jobs-table"><thead><tr><th>Job</th><th>Status</th><th>Progress</th><th>Due</th><th>Team</th><th></th></tr></thead><tbody>${jobs.map(job => `<tr data-job="${job.id}" tabindex="0"><td><span class="job-name">${esc(job.name)}</span><span class="job-code">${job.id} · ${esc(job.client)}</span></td><td><span class="status ${statusClass(job.status)}">${job.status}</span></td><td><div class="progress-track"><span style="width:${job.progress}%"></span></div><span class="progress-label">${job.progress}%</span></td><td><span class="due ${new Date(job.due) < new Date(todayKey()) && job.status !== "Complete" ? "overdue" : ""}">${shortDate(job.due)}</span></td><td>${peopleAvatars(job.team)}</td><td><button class="icon-btn" data-open-row aria-label="Open ${esc(job.name)}">${icon("chevron")}</button></td></tr>`).join("")}</tbody></table>`;
-    return `<table class="jobs-table jobs-table-full"><thead><tr><th><input type="checkbox" data-select-all aria-label="Select all jobs"></th><th>Job number</th><th>Client</th><th>Job name</th><th>Status</th><th>Start date</th><th>Due date</th><th>Progress</th><th>Priority</th><th></th></tr></thead><tbody>${jobs.map(job => `<tr data-job="${job.id}" tabindex="0"><td><input type="checkbox" data-select-job="${job.id}" ${selectedJobs.has(job.id)?"checked":""} aria-label="Select ${esc(job.name)}"></td><td><span class="job-number">${job.id}</span></td><td>${esc(job.client)}</td><td><span class="job-name">${esc(job.name)}</span><span class="job-code">Owner: ${esc(job.owner)}</span></td><td><span class="status ${statusClass(job.status)}">${job.status}</span></td><td>${shortDate(job.start)}</td><td><span class="due ${new Date(job.due) < new Date(todayKey()) && !["Complete","Cancelled"].includes(job.status) ? "overdue" : ""}">${shortDate(job.due)}</span></td><td><div class="progress-inline"><div class="progress-track"><span style="width:${job.progress}%"></span></div><span>${job.progress}%</span></div></td><td><span class="priority-label ${job.priority}">${job.priority}</span></td><td><button class="icon-btn" data-open-row aria-label="Open ${esc(job.name)}">${icon("chevron")}</button></td></tr>`).join("")}</tbody></table>`;
+    if (compact) return `<table class="jobs-table"><thead><tr><th>Job</th><th>Status</th><th>Progress</th><th>Due</th><th>Team</th><th></th></tr></thead><tbody>${jobs.map(job => {const status=jobManagerStatus(job);return `<tr data-job="${job.id}" tabindex="0"><td><span class="job-name">${esc(job.name)}</span><span class="job-code">${job.id} · ${esc(job.client)}</span></td><td><span class="status ${statusClass(status)}">${status}</span></td><td><div class="progress-track"><span style="width:${job.progress}%"></span></div><span class="progress-label">${job.progress}%</span></td><td><span class="due ${new Date(job.due) < new Date(todayKey()) && status !== "Completed" ? "overdue" : ""}">${shortDate(job.due)}</span></td><td>${peopleAvatars(job.team)}</td><td><button class="icon-btn" data-open-row aria-label="Open ${esc(job.name)}">${icon("chevron")}</button></td></tr>`;}).join("")}</tbody></table>`;
+    return `<table class="jobs-table jobs-table-full"><thead><tr><th><input type="checkbox" data-select-all aria-label="Select all jobs"></th><th>Job number</th><th>Client</th><th>Job name</th><th>Status</th><th>Start date</th><th>Due date</th><th>Progress</th><th>Priority</th><th></th></tr></thead><tbody>${jobs.map(job => {const status=jobManagerStatus(job);return `<tr data-job="${job.id}" tabindex="0"><td><input type="checkbox" data-select-job="${job.id}" ${selectedJobs.has(job.id)?"checked":""} aria-label="Select ${esc(job.name)}"></td><td><span class="job-number">${job.id}</span></td><td>${esc(job.client)}</td><td><span class="job-name">${esc(job.name)}</span><span class="job-code">Owner: ${esc(job.owner)}</span></td><td><span class="status ${statusClass(status)}">${status}</span></td><td>${shortDate(job.start)}</td><td><span class="due ${new Date(job.due) < new Date(todayKey()) && !["Completed","Cancelled"].includes(status) ? "overdue" : ""}">${shortDate(job.due)}</span></td><td><div class="progress-inline"><div class="progress-track"><span style="width:${job.progress}%"></span></div><span>${job.progress}%</span></div></td><td><span class="priority-label ${job.priority}">${job.priority}</span></td><td><button class="icon-btn" data-open-row aria-label="Open ${esc(job.name)}">${icon("chevron")}</button></td></tr>`;}).join("")}</tbody></table>`;
   }
 
   function filteredJobs() {
     return state.jobs.filter(job => {
-      const sectionMatch = jobSection === "all" || jobSection === "calendar" || jobSection === "board" ? true : jobSection === "mine" ? job.owner === currentStaffName() : !["Complete","Cancelled"].includes(job.status);
-      const filterMatch = jobFilter === "All statuses" || job.status === jobFilter;
+      const groupedStatus=jobManagerStatus(job);
+      const sectionMatch = jobSection === "all" || jobSection === "calendar" || jobSection === "board" ? true : jobSection === "mine" ? job.owner === currentStaffName() : jobFilter!=="All statuses" || !["Completed","Cancelled"].includes(groupedStatus);
+      const filterMatch = jobFilter === "All statuses" || groupedStatus === jobFilter;
       const due = new Date(`${job.due}T12:00:00`);
       const start = new Date(`${job.start}T12:00:00`);
       const today = new Date(`${todayKey()}T12:00:00`);
       const weekEnd = new Date(Date.now()+7*86400000);
-      const quickMatch = jobQuickFilter === "all" || (jobQuickFilter === "starting" && start >= today && start <= weekEnd) || (jobQuickFilter === "due" && due >= today && due <= weekEnd) || (jobQuickFilter === "overdue" && due < today && !["Complete","Cancelled"].includes(job.status));
+      const quickMatch = jobQuickFilter === "all" || (jobQuickFilter === "starting" && start >= today && start <= weekEnd) || (jobQuickFilter === "due" && due >= today && due <= weekEnd) || (jobQuickFilter === "overdue" && due < today && !["Completed","Cancelled"].includes(groupedStatus));
       const searchMatch = jobSection === "board" || !jobSearchSelection || job.id===jobSearchSelection;
       const clientMatch = jobSection !== "calendar" || !calendarClientFilter || job.client === calendarClientFilter;
       const boardMatch = jobSection !== "board" || (jobMatchesBoardView(job,activeBoardView()) && (!boardClientFilter || job.client===boardClientFilter) && (boardDepartmentFilter==="All departments" || jobDepartment(job)===boardDepartmentFilter) && boardStepMatch(job,boardStepFilter));
@@ -505,12 +506,65 @@
   }
 
   let jobTemplateFilter = "";
+  const fixedBoardSteps={
+    planning:{name:"Planning",status:"Planning",aliases:["Not started","Planned"]},
+    onHold:{name:"On hold",status:"On hold",aliases:["On Hold"]},
+    completed:{name:"Completed",status:"Complete",aliases:["Completed"]},
+    cancelled:{name:"Cancelled",status:"Cancelled",aliases:["Cancel"]}
+  };
+
+  function fixedBoardStepKind(step) {
+    const values=[step?.status,step?.name,...(step?.aliases||[])].map(value=>String(value||"").trim().toLowerCase());
+    if(values.some(value=>["planning","not started","planned"].includes(value)))return "planning";
+    if(values.includes("on hold"))return "onHold";
+    if(values.some(value=>["complete","completed"].includes(value)))return "completed";
+    if(values.some(value=>["cancel","cancelled"].includes(value)))return "cancelled";
+    return "";
+  }
+
+  function fixedBoardStep(kind,existing) {
+    const definition=fixedBoardSteps[kind];
+    return {...existing,id:existing?.id||crypto.randomUUID(),name:definition.name,status:definition.status,aliases:[...definition.aliases],visible:true,fixed:true};
+  }
+
+  function normalizeBoardViewSteps(view) {
+    const before=JSON.stringify(view.steps||[]),found={},custom=[];
+    for(const step of view.steps||[]){const kind=fixedBoardStepKind(step);if(kind){found[kind]||=step;}else custom.push({...step,fixed:false});}
+    view.steps=[fixedBoardStep("planning",found.planning),...custom,fixedBoardStep("onHold",found.onHold),fixedBoardStep("completed",found.completed),fixedBoardStep("cancelled",found.cancelled)];
+    return JSON.stringify(view.steps)!==before;
+  }
+
+  function newBoardViewDraft() {
+    const view={id:`board-view-${crypto.randomUUID()}`,name:"",isDefault:!state.boardViews?.length,templateIds:[],steps:[]};
+    normalizeBoardViewSteps(view);return view;
+  }
+
+  function reorderBoardViewSteps(steps,stepId,direction) {
+    const index=steps.findIndex(step=>step.id===stepId),target=index+Number(direction),lastCustom=steps.length-4;
+    if(index<1||index>lastCustom||target<1||target>lastCustom)return false;
+    [steps[index],steps[target]]=[steps[target],steps[index]];return true;
+  }
+
+  function boardViewForJob(job) {
+    const template=state.jobTemplates.find(item=>jobUsesTemplate(job,item));
+    return state.boardViews?.find(view=>view.id===template?.boardViewId)
+      ||state.boardViews?.find(view=>jobMatchesBoardView(job,view))
+      ||defaultBoardView();
+  }
+
+  function jobManagerStatus(job) {
+    const step=boardViewColumnForJob(boardViewForJob(job),job),kind=fixedBoardStepKind(step);
+    if(kind==="planning")return "Planning";
+    if(kind==="onHold")return "On hold";
+    if(kind==="completed")return "Completed";
+    if(kind==="cancelled")return "Cancelled";
+    return "In progress";
+  }
+
   function jobBoardStage(job) {
     const selected=activeBoardView();
-    const template=state.jobTemplates.find(t=>jobUsesTemplate(job,t));
     const view=(jobSection==="board"&&jobMatchesBoardView(job,selected)?selected:null)
-      ||state.boardViews?.find(v=>v.id===template?.boardViewId)
-      ||state.boardViews?.find(v=>jobMatchesBoardView(job,v));
+      ||boardViewForJob(job);
     return boardViewColumnForJob(view,job)?.name || job.status || "Not assigned";
   }
 
@@ -674,12 +728,12 @@
     const jobs = filteredJobs();
     const boardView=activeBoardView();
     const boardSteps=(boardView?.steps||[]).filter(step=>step.visible);
-    const baseJobs = state.jobs.filter(job => jobSection === "mine" ? job.owner === currentStaffName() : jobSection === "active" ? !["Complete","Cancelled"].includes(job.status) : true);
+    const baseJobs = state.jobs.filter(job => jobSection === "mine" ? job.owner === currentStaffName() : jobSection === "active" && jobFilter==="All statuses" ? !["Completed","Cancelled"].includes(jobManagerStatus(job)) : true);
     const counts = {
       all: baseJobs.length,
       starting: baseJobs.filter(job => new Date(`${job.start}T12:00:00`) >= new Date(`${todayKey()}T12:00:00`) && new Date(`${job.start}T12:00:00`) <= new Date(Date.now()+7*86400000)).length,
       due: baseJobs.filter(job => new Date(`${job.due}T12:00:00`) >= new Date(`${todayKey()}T12:00:00`) && new Date(`${job.due}T12:00:00`) <= new Date(Date.now()+7*86400000)).length,
-      overdue: baseJobs.filter(job => new Date(`${job.due}T12:00:00`) < new Date(`${todayKey()}T12:00:00`) && !["Complete","Cancelled"].includes(job.status)).length
+      overdue: baseJobs.filter(job => new Date(`${job.due}T12:00:00`) < new Date(`${todayKey()}T12:00:00`) && !["Completed","Cancelled"].includes(jobManagerStatus(job))).length
     };
     const tabs = [["active","Active Jobs"],["mine","My Jobs"],["calendar","Calendar"],["board","Board"],["capacity","Staff Allocation"],["recurring","Recurring Jobs"],["schedule","Schedule"]];
     const departments=[...new Set(state.capacity.members.map(member=>member.department).filter(Boolean))].sort();
@@ -689,7 +743,7 @@
     const clientFilterChip = jobSection === "calendar" && calendarClientFilter ? `<button class="calendar-client-filter" data-clear-calendar-client title="Show all clients">Client: ${esc(calendarClientFilter)} <span aria-hidden="true">×</span></button>` : jobSection === "board" && boardClientFilter ? `<button class="calendar-client-filter" data-clear-board-client title="Show all clients">Client: ${esc(boardClientFilter)} <span aria-hidden="true">×</span></button>` : "";
     const filterControls = jobSection === "board"
       ? `<button class="button ghost board-view-button" data-select-board-view>${icon("board")}<span><small>View</small>${esc(boardView?.name||"Select view")}</span>${icon("chevron")}</button><select class="filter-select" id="board-department" aria-label="Filter Board by department"><option>All departments</option>${departments.map(department=>`<option ${boardDepartmentFilter===department?"selected":""}>${esc(department)}</option>`).join("")}</select><select class="filter-select" id="board-step" aria-label="Filter Board by step"><option>All steps</option>${boardSteps.map(step=>`<option value="${esc(step.status)}" ${boardStepFilter===step.status?"selected":""}>${esc(step.name)}</option>`).join("")}</select>`
-      : `<select class="filter-select" id="job-status" aria-label="Filter by status">${["All statuses","Planning","In progress","Review","On hold","Complete","Cancelled"].map(s => `<option ${s === jobFilter ? "selected" : ""}>${s}</option>`).join("")}</select>`;
+      : `<select class="filter-select" id="job-status" aria-label="Filter by status">${["All statuses","Planning","In progress","On hold","Completed","Cancelled"].map(s => `<option ${s === jobFilter ? "selected" : ""}>${s}</option>`).join("")}</select>`;
     const listTools = `<div class="toolbar job-toolbar"><div class="quick-filters">${[["all","All"],["starting","Starting soon"],["due","Due this week"],["overdue","Overdue"]].map(([key,label])=>`<button class="quick-filter ${jobQuickFilter===key?"active":""}" data-job-quick="${key}">${label}<span>${counts[key]}</span></button>`).join("")}</div>${searchControl}${clientFilterChip}${filterControls}<select class="filter-select" id="job-template-filter" aria-label="Filter jobs by Template"><option value="">All templates</option>${state.jobTemplates.map(t=>`<option value="${esc(t.id)}" ${jobTemplateFilter===t.id?"selected":""}>${esc(t.name)}</option>`).join("")}</select><button class="button ghost" data-display-options>${icon("filter")}Display options</button><span class="toolbar-spacer"></span><span class="date-chip">${jobs.length} jobs</span></div>`;
     let body = `<section class="card table-card">${jobsTable(jobs)}</section>`;
     if (jobSection === "board") body = renderKanban(jobs);
@@ -1038,6 +1092,7 @@
     state.boardViews.forEach((view,index)=>{
       view.id||=`board-view-${crypto.randomUUID()}`;view.name||=`Board view ${index+1}`;view.steps=Array.isArray(view.steps)?view.steps:[];
       view.steps.forEach(step=>{step.id||=crypto.randomUUID();step.name||=step.status||"New step";step.status||=step.name;step.visible=step.visible!==false;step.aliases=Array.isArray(step.aliases)?step.aliases:[];});
+      if(normalizeBoardViewSteps(view))changed=true;
     });
     if(!state.boardViews.some(view=>view.isDefault)){state.boardViews[0].isDefault=true;changed=true;}
     const fallback=state.boardViews.find(view=>view.isDefault)?.id||state.boardViews[0].id;
@@ -1354,7 +1409,8 @@
 
   function openBoardViewEditor(viewId="") {
     const existing=state.boardViews?.find(view=>view.id===viewId);
-    boardViewDraft=existing?structuredClone({...existing,templateIds:boardViewTemplates(existing).map(template=>template.id)}):{id:`board-view-${crypto.randomUUID()}`,name:"",isDefault:!state.boardViews?.length,templateIds:[],steps:["Planning","In progress","Review","On hold","Complete","Cancelled"].map(name=>({id:crypto.randomUUID(),name,status:name,visible:true,aliases:name==="Planning"?["Not started","Planned"]:[]}))};
+    boardViewDraft=existing?structuredClone({...existing,templateIds:boardViewTemplates(existing).map(template=>template.id)}):newBoardViewDraft();
+    normalizeBoardViewSteps(boardViewDraft);
     renderBoardViewEditor();
   }
 
@@ -1369,7 +1425,7 @@
   function renderBoardViewEditor() {
     const draft=boardViewDraft;if(!draft)return;
     const saved=state.boardViews?.some(view=>view.id===draft.id);
-    showPanel(saved?"Edit Board view":"Create Board view",`<form id="board-view-form" class="board-view-form"><section class="board-form-section"><div class="board-form-section-head"><span>1</span><div><h3>View details</h3><p>Name the view and choose how it opens.</p></div></div><div class="board-detail-grid"><label>View name<input name="name" value="${esc(draft.name)}" placeholder="e.g. Transfer Pricing" maxlength="100" required></label><label class="board-default-toggle"><input name="isDefault" type="checkbox" ${draft.isDefault?"checked":""}><span><strong>Default view</strong><small>Open automatically in the Board tab.</small></span></label></div></section><section class="board-form-section"><div class="board-form-section-head"><span>2</span><div><h3>Job scope</h3><p>Select the templates whose jobs belong in this view.</p></div></div><fieldset class="board-template-picker"><legend class="sr-only">Assigned templates</legend>${state.jobTemplates.map(template=>{const count=state.jobs.filter(job=>jobUsesTemplate(job,template)).length;return `<label><input type="checkbox" name="templateIds" value="${template.id}" ${draft.templateIds.includes(template.id)?"checked":""}><span><strong>${esc(template.name)}</strong><small>${count} job${count===1?"":"s"} currently use this template</small></span><b>${draft.templateIds.includes(template.id)?"Included":"Add"}</b></label>`;}).join("")}</fieldset><div class="board-scope-summary" id="board-view-scope-summary"></div></section><section class="board-form-section"><div class="board-form-section-head"><span>3</span><div><h3>Workflow columns</h3><p>Rename columns or hide any that are not needed.</p></div><button type="button" class="button ghost" data-add-board-step>+ Step</button></div><div class="board-step-editor">${draft.steps.map((step,index)=>`<div class="board-step-row" data-board-step-row="${step.id}"><span class="board-step-index">${index+1}</span><label>Column name<input name="stepName" value="${esc(step.name)}" placeholder="Column name" maxlength="60" required></label><label class="board-visible-toggle"><input type="checkbox" name="stepVisible" ${step.visible?"checked":""}> Visible</label><button type="button" class="icon-btn danger-text" data-remove-board-step="${step.id}" aria-label="Remove ${esc(step.name)}">×</button></div>`).join("")}</div></section><div class="panel-form-actions board-form-actions"><button class="button ghost" type="button" data-cancel-board-view>Cancel</button><button class="button primary" type="submit">${saved?"Save changes":"Create Board view"}</button></div></form>`);
+    showPanel(saved?"Edit Board view":"Create Board view",`<form id="board-view-form" class="board-view-form"><section class="board-form-section"><div class="board-form-section-head"><span>1</span><div><h3>View details</h3><p>Name the view and choose how it opens.</p></div></div><div class="board-detail-grid"><label>View name<input name="name" value="${esc(draft.name)}" placeholder="e.g. Transfer Pricing" maxlength="100" required></label><label class="board-default-toggle"><input name="isDefault" type="checkbox" ${draft.isDefault?"checked":""}><span><strong>Default view</strong><small>Open automatically in the Board tab.</small></span></label></div></section><section class="board-form-section"><div class="board-form-section-head"><span>2</span><div><h3>Job scope</h3><p>Select the templates whose jobs belong in this view.</p></div></div><fieldset class="board-template-picker"><legend class="sr-only">Assigned templates</legend>${state.jobTemplates.map(template=>{const count=state.jobs.filter(job=>jobUsesTemplate(job,template)).length;return `<label><input type="checkbox" name="templateIds" value="${template.id}" ${draft.templateIds.includes(template.id)?"checked":""}><span><strong>${esc(template.name)}</strong><small>${count} job${count===1?"":"s"} currently use this template</small></span><b>${draft.templateIds.includes(template.id)?"Included":"Add"}</b></label>`;}).join("")}</fieldset><div class="board-scope-summary" id="board-view-scope-summary"></div></section><section class="board-form-section"><div class="board-form-section-head"><span>3</span><div><h3>Workflow columns</h3><p>Planning stays first. Custom steps can move in the middle. On hold, Completed and Cancelled stay together at the end.</p></div><button type="button" class="button ghost" data-add-board-step>+ Step</button></div><div class="board-step-editor">${draft.steps.map((step,index)=>{const fixed=Boolean(fixedBoardStepKind(step)),lastCustom=draft.steps.length-4;return `<div class="board-step-row ${fixed?"fixed-board-step":""}" data-board-step-row="${step.id}"><span class="board-step-index">${index+1}</span><label>Column name<input name="stepName" value="${esc(step.name)}" placeholder="Column name" maxlength="60" required ${fixed?"readonly":""}></label><label class="board-visible-toggle"><input type="checkbox" name="stepVisible" ${step.visible?"checked":""} ${fixed?"disabled":""}> Visible</label><div class="board-step-actions">${fixed?'<span class="fixed-step-badge">Fixed</span>':`<button type="button" class="icon-btn" data-move-board-step="-1" data-board-step-id="${step.id}" aria-label="Move ${esc(step.name)} up" ${index<=1?"disabled":""}>↑</button><button type="button" class="icon-btn" data-move-board-step="1" data-board-step-id="${step.id}" aria-label="Move ${esc(step.name)} down" ${index>=lastCustom?"disabled":""}>↓</button><button type="button" class="icon-btn danger-text" data-remove-board-step="${step.id}" aria-label="Remove ${esc(step.name)}">×</button>`}</div></div>`;}).join("")}</div></section><div class="panel-form-actions board-form-actions"><button class="button ghost" type="button" data-cancel-board-view>Cancel</button><button class="button primary" type="submit">${saved?"Save changes":"Create Board view"}</button></div></form>`);
     updateBoardViewScopeSummary();
   }
 
@@ -1552,7 +1608,28 @@
   document.addEventListener("input",event=>{if(event.target.closest("#template-editor"))readTemplateDraft();});
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="template"],#job-form [name="start"]'))updateTemplatePreview(true);if(event.target.matches('#board-view-form [name="templateIds"]')){readBoardViewDraft();updateBoardViewScopeSummary();event.target.closest("label")?.querySelector("b")?.replaceChildren(event.target.checked?"Included":"Add");}});
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="recurring"],#job-info-form [name="recurring"]'))updateRecurringFields(event.target.form);});
-  document.addEventListener("submit",event=>{if(event.target.id!=="board-view-form")return;event.preventDefault();readBoardViewDraft();const previous=state.boardViews.find(view=>view.id===boardViewDraft.id),name=boardViewDraft.name.trim(),steps=boardViewDraft.steps.map(step=>{const savedStep=previous?.steps.find(item=>item.id===step.id),stepName=step.name.trim();return {...step,name:stepName,status:savedStep&&savedStep.name===stepName?savedStep.status:stepName};});if(!name){showToast("Enter a view name.");return;}if(state.boardViews.some(view=>view.id!==boardViewDraft.id&&view.name.trim().toLowerCase()===name.toLowerCase())){showToast("A Board view with this name already exists.");return;}if(!boardViewDraft.templateIds.length){showToast("Select at least one template so the view can display jobs.");return;}if(!steps.length||steps.some(step=>!step.name)){showToast("Each view needs at least one named step.");return;}if(new Set(steps.map(step=>step.name.toLowerCase())).size!==steps.length){showToast("Step names must be unique within a view.");return;}if(!steps.some(step=>step.visible)){showToast("Choose at least one step to display.");return;}if(!steps[0].visible){showToast("The first step must be visible so newly assigned jobs can appear there.");return;}const copy={id:boardViewDraft.id,name,isDefault:Boolean(boardViewDraft.isDefault),steps};if(previous){const templates=boardViewTemplates(previous);for(const oldStep of previous.steps){const next=steps.find(step=>step.id===oldStep.id);if(next&&next.status!==oldStep.status)state.jobs.filter(job=>templates.some(template=>jobUsesTemplate(job,template))).forEach(job=>{if(boardViewStepForStatus({steps:[oldStep]},job.status)){job.status=next.status;if(job.boardStageStatus===oldStep.status)job.boardStageStatus=next.status;}});}}const index=state.boardViews.findIndex(view=>view.id===copy.id);if(index<0)state.boardViews.push(copy);else state.boardViews[index]=copy;if(copy.isDefault)state.boardViews.forEach(view=>{if(view.id!==copy.id)view.isDefault=false;});if(!state.boardViews.some(view=>view.isDefault))copy.isDefault=true;state.jobTemplates.forEach(template=>{if(boardViewDraft.templateIds.includes(template.id))template.boardViewId=copy.id;else if(template.boardViewId===copy.id)template.boardViewId="";});normalizeViewJobs(copy,boardViewDraft.templateIds);selectedBoardViewId=copy.id;boardStepFilter="All steps";boardViewDraft=null;if(!save())return;$("#audit-panel")?.remove();render(currentView);showToast(`${copy.name} saved.`);});
+  document.addEventListener("submit",event=>{
+    if(event.target.id!=="board-view-form")return;
+    event.preventDefault();readBoardViewDraft();normalizeBoardViewSteps(boardViewDraft);
+    const previous=state.boardViews.find(view=>view.id===boardViewDraft.id),name=boardViewDraft.name.trim();
+    const steps=boardViewDraft.steps.map(step=>{
+      const kind=fixedBoardStepKind(step),savedStep=previous?.steps.find(item=>item.id===step.id),stepName=kind?fixedBoardSteps[kind].name:step.name.trim();
+      return {...step,name:stepName,status:kind?fixedBoardSteps[kind].status:savedStep&&savedStep.name===stepName?savedStep.status:stepName,aliases:kind?[...fixedBoardSteps[kind].aliases]:(step.aliases||[]),visible:kind?true:step.visible,fixed:Boolean(kind)};
+    });
+    if(!name){showToast("Enter a view name.");return;}
+    if(state.boardViews.some(view=>view.id!==boardViewDraft.id&&view.name.trim().toLowerCase()===name.toLowerCase())){showToast("A Board view with this name already exists.");return;}
+    if(!boardViewDraft.templateIds.length){showToast("Select at least one template so the view can display jobs.");return;}
+    if(steps.some(step=>!step.name)){showToast("Each view needs a name for every custom step.");return;}
+    if(new Set(steps.map(step=>step.name.toLowerCase())).size!==steps.length){showToast("Step names must be unique within a view.");return;}
+    if(steps[0].name!=="Planning"||steps.at(-3).name!=="On hold"||steps.at(-2).name!=="Completed"||steps.at(-1).name!=="Cancelled"){showToast("Fixed workflow columns must remain in their required positions.");return;}
+    const copy={id:boardViewDraft.id,name,isDefault:Boolean(boardViewDraft.isDefault),steps};
+    if(previous){const templates=boardViewTemplates(previous);for(const oldStep of previous.steps){const next=steps.find(step=>step.id===oldStep.id);if(next&&next.status!==oldStep.status)state.jobs.filter(job=>templates.some(template=>jobUsesTemplate(job,template))).forEach(job=>{if(boardViewStepForStatus({steps:[oldStep]},job.status)){job.status=next.status;if(job.boardStageStatus===oldStep.status)job.boardStageStatus=next.status;}});}}
+    const index=state.boardViews.findIndex(view=>view.id===copy.id);if(index<0)state.boardViews.push(copy);else state.boardViews[index]=copy;
+    if(copy.isDefault)state.boardViews.forEach(view=>{if(view.id!==copy.id)view.isDefault=false;});if(!state.boardViews.some(view=>view.isDefault))copy.isDefault=true;
+    state.jobTemplates.forEach(template=>{if(boardViewDraft.templateIds.includes(template.id))template.boardViewId=copy.id;else if(template.boardViewId===copy.id)template.boardViewId="";});
+    normalizeViewJobs(copy,boardViewDraft.templateIds);selectedBoardViewId=copy.id;boardStepFilter="All steps";boardViewDraft=null;
+    if(!save())return;$("#audit-panel")?.remove();render(currentView);showToast(`${copy.name} saved.`);
+  });
   document.addEventListener("submit",event=>{if(event.target.id!=="template-board-view-form")return;event.preventDefault();const data=new FormData(event.target);state.jobTemplates.forEach(template=>{template.boardViewId=String(data.get(`template-${template.id}`)||"");});if(!save())return;render("settings");showToast("Template Board views saved.");});
   document.addEventListener("submit",event=>{if(event.target.id!=="template-editor")return;event.preventDefault();readTemplateDraft();const error=validateTemplate(templateDraft);if(error){showToast(error);return;}const copy=structuredClone(templateDraft);copy.name=copy.name.trim();const index=state.jobTemplates.findIndex(t=>t.id===copy.id);if(index<0)state.jobTemplates.push(copy);else state.jobTemplates[index]=copy;if(!save())return;setTemplateDraft(structuredClone(copy));render("settings");showToast("Template saved for future jobs.");});
   document.addEventListener("submit",async event=>{
@@ -2101,9 +2178,11 @@
     const editBoardView=event.target.closest("[data-edit-board-view]");
     if(editBoardView){openBoardViewEditor(editBoardView.dataset.editBoardView);return;}
     if(event.target.closest("[data-cancel-board-view]")){boardViewDraft=null;$("#audit-panel")?.remove();if(currentView==="settings")render("settings");else openBoardViewSelector();return;}
-    if(event.target.closest("[data-add-board-step]")){readBoardViewDraft();boardViewDraft.steps.push({id:crypto.randomUUID(),name:`Step ${boardViewDraft.steps.length+1}`,status:`Step ${boardViewDraft.steps.length+1}`,visible:true,aliases:[]});renderBoardViewEditor();return;}
+    if(event.target.closest("[data-add-board-step]")){readBoardViewDraft();const number=boardViewDraft.steps.filter(step=>!fixedBoardStepKind(step)).length+1;boardViewDraft.steps.splice(Math.max(1,boardViewDraft.steps.length-3),0,{id:crypto.randomUUID(),name:`Workflow step ${number}`,status:`Workflow step ${number}`,visible:true,aliases:[],fixed:false});renderBoardViewEditor();return;}
+    const moveBoardStep=event.target.closest("[data-move-board-step]");
+    if(moveBoardStep){readBoardViewDraft();if(reorderBoardViewSteps(boardViewDraft.steps,moveBoardStep.dataset.boardStepId,moveBoardStep.dataset.moveBoardStep))renderBoardViewEditor();return;}
     const removeBoardStep=event.target.closest("[data-remove-board-step]");
-    if(removeBoardStep){readBoardViewDraft();if(boardViewDraft.steps.length<=1){showToast("A Board view needs at least one step.");return;}boardViewDraft.steps=boardViewDraft.steps.filter(step=>step.id!==removeBoardStep.dataset.removeBoardStep);renderBoardViewEditor();return;}
+    if(removeBoardStep){readBoardViewDraft();const step=boardViewDraft.steps.find(item=>item.id===removeBoardStep.dataset.removeBoardStep);if(!step||fixedBoardStepKind(step)){showToast("Fixed workflow columns cannot be removed.");return;}boardViewDraft.steps=boardViewDraft.steps.filter(item=>item.id!==step.id);renderBoardViewEditor();return;}
     if(event.target.closest("[data-settings-board-views]")){boardViewDraft=null;$("#audit-panel")?.remove();settingsSection="board-views";render("settings");return;}
     if (event.target.closest("[data-open-job],[data-open-recurring]")) openModal("#job-modal");
     const close = event.target.closest("[data-close-modal]");
