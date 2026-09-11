@@ -153,7 +153,8 @@
   let scheduleMode = "timeline";
   let timelineGroup = "job";
   let timelineFilters = { owner:"All staff", status:"All statuses", clientQuery:"", clientSelection:"", department:"All departments" };
-  let dashboardFilters = {period:"Month",service:"All services",staff:"All staff",jobStatus:"All job statuses",jobStage:"All stages",taskStatus:"All task statuses",deadlineStatus:"All deadline statuses"};
+  let dashboardFilters = {period:"Month",service:"All services",staff:"",jobStatus:"All statuses",taskStatus:"All task statuses",deadlineStatus:"All deadline statuses"};
+  let dashboardStaffQuery = "";
   let dashboardSectionFilters = {pipeline:{query:"",selected:"",metric:"All statuses"},tasks:{query:"",selected:"",metric:"All deadline statuses"},risk:{query:"",selected:"",metric:"All risk levels"}};
   const expandedDashboardSections = new Set();
   let activeJobId = null;
@@ -304,7 +305,7 @@
   function dateFromTimelineDay(day) {
     const date = new Date("2026-09-01T12:00:00");
     date.setDate(date.getDate() + Number(day || 0));
-    return date.toISOString().slice(0,10);
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
   }
 
   function ensureJobPhaseHierarchy(job) {
@@ -442,16 +443,16 @@
 
   function dashboardData() {
     const [from,to]=dashboardPeriodRange();
-    const stageOptions=[...new Set(state.jobs.map(job=>jobStage(job)))].sort();
+    const selectedStaff=state.capacity.members.find(member=>member.id===dashboardFilters.staff);
+    const staffNames=selectedStaff?[selectedStaff.shortName,selectedStaff.fullName,selectedStaff.name].filter(Boolean):[];
     let jobs=state.jobs.filter(job=>job.start<=to&&job.due>=from)
       .filter(job=>dashboardFilters.service==="All services"||job.template===dashboardFilters.service)
-      .filter(job=>dashboardFilters.staff==="All staff"||job.owner===dashboardFilters.staff||job.team?.includes(dashboardFilters.staff))
-      .filter(job=>dashboardFilters.jobStatus==="All job statuses"||jobStatusBucket(job)===dashboardFilters.jobStatus)
-      .filter(job=>dashboardFilters.jobStage==="All stages"||jobStage(job)===dashboardFilters.jobStage);
+      .filter(job=>!selectedStaff||staffNames.includes(job.owner)||job.team?.some(name=>staffNames.includes(name)))
+      .filter(job=>dashboardFilters.jobStatus==="All statuses"||jobManagerStatus(job)===dashboardFilters.jobStatus);
     let tasks=dashboardTaskRows(jobs)
       .filter(row=>dashboardFilters.taskStatus==="All task statuses"||row.status===dashboardFilters.taskStatus)
       .filter(row=>dashboardFilters.deadlineStatus==="All deadline statuses"||row.deadlineStatus===dashboardFilters.deadlineStatus);
-    return {from,to,jobs,tasks,stageOptions};
+    return {from,to,jobs,tasks};
   }
 
   function distributionBar(counts,classes={}) {
@@ -460,12 +461,12 @@
   }
 
   function renderDashboard() {
-    const {from,to,jobs,tasks,stageOptions}=dashboardData(),today=todayKey(),next7=dateFromTimelineDay(timelineDay(today)+7);
-    const inProgress=jobs.filter(job=>jobStatusBucket(job)==="In progress");
+    const {from,to,jobs,tasks}=dashboardData(),today=todayKey(),next7=dateFromTimelineDay(timelineDay(today)+7);
+    const inProgress=jobs.filter(job=>jobManagerStatus(job)==="In progress");
     const todayTasks=tasks.filter(row=>row.deadline===today&&row.status!=="Complete"),nextTasks=tasks.filter(row=>row.deadline>today&&row.deadline<=next7&&row.status!=="Complete"),overdueTasks=tasks.filter(row=>row.status==="Overdue");
     const services=Object.fromEntries([...new Set(state.jobTemplates.map(template=>template.name))].map(service=>[service,jobs.filter(job=>job.template===service).length]));
     const maxService=Math.max(1,...Object.values(services));
-    const jobStatuses=Object.fromEntries(["Not started","In progress","On hold","Cancelled","Complete"].map(status=>[status,jobs.filter(job=>jobStatusBucket(job)===status).length]));
+    const jobStatuses=Object.fromEntries(["Planning","In progress","On hold","Completed","Cancelled"].map(status=>[status,jobs.filter(job=>jobManagerStatus(job)===status).length]));
     const taskStatuses=Object.fromEntries(["Not started","In progress","Overdue","Complete"].map(status=>[status,tasks.filter(row=>row.status===status).length]));
     const pipelineEnd=dateFromTimelineDay(timelineDay(today)+30),rawPipeline=jobs.filter(job=>job.start<=pipelineEnd&&job.due>=today).sort((a,b)=>a.due.localeCompare(b.due));
     const riskWeight={High:3,Medium:2,Low:1};
@@ -478,9 +479,11 @@
     const visibleRows=(key,rows)=>expandedDashboardSections.has(key)?rows:rows.slice(0,5);
     const sectionTools=(key,placeholder,metric,options,count)=>`<div class="dashboard-section-toolbar">${searchPickerMarkup(`dashboard-${key}`,`dashboard-${key}-search`,dashboardSectionFilters[key].query,placeholder,dashboardSectionFilters[key].selected?dashboardSectionFilters[key].query:"")}<select data-dashboard-section-metric="${key}">${options.map(option=>`<option ${metric===option?"selected":""}>${esc(option)}</option>`).join("")}</select><span>${Math.min(expandedDashboardSections.has(key)?count:5,count)} of ${count} items</span></div>`;
     const sectionActions=(key,module,label)=>`<div class="dashboard-section-actions"><button class="button ghost compact-button" data-dashboard-expand="${key}">${expandedDashboardSections.has(key)?"Show 5":"Show all"}</button><button class="button ghost compact-button" ${module==="capacity"?"data-open-capacity":module==="schedule"?"data-dashboard-module=\"schedule\"":`data-view-link=\"${module}\"`}>${esc(label)} →</button></div>`;
+    const listSectionActions=(key,count)=>`<div class="dashboard-section-actions"><span class="dashboard-list-count">${Math.min(expandedDashboardSections.has(key)?count:5,count)} of ${count} items</span><button class="button ghost compact-button" data-dashboard-expand="${key}">${expandedDashboardSections.has(key)?"Show 5":"Show all"}</button></div>`;
     const filter=(id,value,options)=>`<label><span>${id.replaceAll("-"," ")}</span><select id="dashboard-${id}">${options.map(option=>`<option ${value===option?"selected":""}>${esc(option)}</option>`).join("")}</select></label>`;
+    const selectedStaff=state.capacity.members.find(member=>member.id===dashboardFilters.staff);
     return `${pageHead(new Date().toLocaleDateString("en-US",{weekday:"long",day:"numeric",month:"long"}),"Team overview","Operational view of jobs, deadlines, delivery and team capacity.",`<div class="date-chip">${icon("calendar")} ${shortDate(from)}–${shortDate(to)}</div><button class="button primary" data-open-job>${icon("plus")}New job</button>`)}
-      <section class="dashboard-filter-card" aria-label="Dashboard filters">${filter("period",dashboardFilters.period,["Week","Month","Year"])}${filter("service",dashboardFilters.service,["All services",...state.jobTemplates.map(item=>item.name)])}${filter("staff",dashboardFilters.staff,["All staff",...state.capacity.members.map(item=>item.shortName)])}${filter("job-status",dashboardFilters.jobStatus,["All job statuses","Not started","In progress","On hold","Cancelled","Complete"])}${filter("job-stage",dashboardFilters.jobStage,["All stages",...stageOptions])}${filter("task-status",dashboardFilters.taskStatus,["All task statuses","Not started","In progress","Overdue","Complete"])}${filter("deadline-status",dashboardFilters.deadlineStatus,["All deadline statuses","Overdue","Due today","Due in 1–3 days","Due in 4–7 days"])}<button class="button ghost" data-dashboard-reset>Reset</button></section>
+      <section class="dashboard-filter-card" aria-label="Dashboard filters">${filter("period",dashboardFilters.period,["Week","Month","Year"])}${filter("service",dashboardFilters.service,["All services",...state.jobTemplates.map(item=>item.name)])}<div class="dashboard-filter-field"><span>Staff</span>${searchPickerMarkup("dashboard-staff","dashboard-staff-search",dashboardStaffQuery,"Search staff by full name…",selectedStaff?.fullName||"")}</div>${filter("job-status",dashboardFilters.jobStatus,["All statuses","Planning","In progress","On hold","Completed","Cancelled"])}${filter("task-status",dashboardFilters.taskStatus,["All task statuses","Not started","Overdue","Complete"])}${filter("deadline-status",dashboardFilters.deadlineStatus,["All deadline statuses","Overdue","Due today","Due in 1–3 days","Due in 4–7 days"])}<button class="button ghost" data-dashboard-reset>Reset</button></section>
       <section class="metrics dashboard-metrics" aria-label="Operational overview">${metric("Jobs in progress",inProgress.length,"","In selected period","briefcase","#0a8e80","#e4f7f4")}${metric("Tasks due today",todayTasks.length,"","Open tasks","clock","#376bd8","#eaf0ff")}${metric("Tasks due next 7 days",nextTasks.length,"","Excludes today","calendar","#7857c5","#f0ebfb")}${metric("Overdue tasks",overdueTasks.length,"","Needs attention","receipt","#d64b4b","#ffebeb",true)}</section>
       <div class="dashboard-analysis-grid">
         <section class="card dashboard-chart"><div class="card-head"><div><h2>Service line</h2><p>Jobs by service</p></div></div><div class="horizontal-bars">${Object.entries(services).map(([name,value])=>`<div><span>${esc(name)}</span><i><b style="width:${value/maxService*100}%"></b></i><strong>${value}</strong></div>`).join("")}</div></section>
@@ -490,10 +493,8 @@
       <section class="card dashboard-wide compact-dashboard-section"><div class="card-head"><div><h2>30-day delivery pipeline</h2><p>Five nearest deadlines first</p></div>${sectionActions("pipeline","schedule","Open Schedule")}</div>${sectionTools("pipeline","Search job, client or PIC…",dashboardSectionFilters.pipeline.metric,["All statuses","Not started","In progress","On hold","Cancelled","Complete"],pipeline.length)}<div class="dashboard-table-scroll"><table class="jobs-table dashboard-table"><thead><tr><th>Job</th><th>Client</th><th>PIC</th><th>Stage</th><th>Deadline</th><th>Status</th><th>30-day timeline</th></tr></thead><tbody>${visibleRows("pipeline",pipeline).map(job=>{const left=Math.max(0,(timelineDay(job.start)-timelineDay(today))/30*100),right=Math.min(100,(timelineDay(job.due)-timelineDay(today)+1)/30*100),width=Math.max(3,right-left);return `<tr data-job="${job.id}"><td><button class="text-btn" data-job="${job.id}">${esc(job.name)}</button></td><td>${esc(job.client)}</td><td>${esc(job.owner)}</td><td>${esc(jobStage(job))}</td><td>${shortDate(job.due)}</td><td><span class="status ${statusClass(job.status)}">${esc(jobStatusBucket(job))}</span></td><td><div class="pipeline-track"><span style="left:${left}%;width:${width}%"></span></div></td></tr>`;}).join("")||'<tr><td colspan="7">No matching jobs in the next 30 days.</td></tr>'}</tbody></table></div></section>
       <section class="card dashboard-wide compact-dashboard-section"><div class="card-head"><div><h2>Priority task list</h2><p>Five nearest or overdue deadlines first</p></div>${sectionActions("tasks","schedule","Open Schedule")}</div>${sectionTools("tasks","Search task, job or PIC…",dashboardSectionFilters.tasks.metric,["All deadline statuses","Overdue","Due today","Due in 1–3 days","Due in 4–7 days","Later"],priorityTasks.length)}<div class="dashboard-table-scroll"><table class="jobs-table dashboard-table"><thead><tr><th>Task</th><th>Job</th><th>PIC</th><th>Deadline</th><th>Deadline status</th></tr></thead><tbody>${visibleRows("tasks",priorityTasks).map(row=>`<tr data-job="${row.job.id}"><td><button class="text-btn" data-job="${row.job.id}" data-job-tab="phases">${esc(row.item.name)}</button></td><td>${esc(row.job.name)}</td><td>${esc(row.item.owner)}</td><td>${shortDate(row.deadline)}</td><td><span class="deadline-chip ${statusClass(row.deadlineStatus)}">${esc(row.deadlineStatus)}</span></td></tr>`).join("")||'<tr><td colspan="5">No matching tasks.</td></tr>'}</tbody></table></div></section>
       <section class="card dashboard-wide compact-dashboard-section"><div class="card-head"><div><h2>Overdue & at-risk jobs</h2><p>Highest risk and most overdue first</p></div>${sectionActions("risk","jobs","Open Jobs")}</div>${sectionTools("risk","Search job, client or PIC…",dashboardSectionFilters.risk.metric,["All risk levels","High","Medium","Low"],riskRows.length)}<div class="dashboard-table-scroll"><table class="jobs-table dashboard-table"><thead><tr><th>Job</th><th>Deadline</th><th>Days overdue</th><th>Status</th><th>PIC</th><th>Risk</th></tr></thead><tbody>${visibleRows("risk",riskRows).map(row=>`<tr data-job="${row.job.id}"><td><button class="text-btn" data-job="${row.job.id}">${esc(row.job.name)}</button></td><td>${shortDate(row.job.due)}</td><td>${row.days}</td><td>${esc(jobStatusBucket(row.job))}</td><td>${esc(row.job.owner)}</td><td><span class="risk-pill ${row.risk.toLowerCase()}">${row.risk}</span></td></tr>`).join("")||'<tr><td colspan="6">No matching overdue or at-risk jobs.</td></tr>'}</tbody></table></div></section>
-      <div class="dashboard-split">
-        <section class="card"><div class="card-head"><div><h2>Start reminders</h2><p>Jobs contracted earlier and approaching delivery start</p></div></div><ul class="dashboard-action-list">${reminders.map(job=>`<li><button data-job="${job.id}"><span><strong>${esc(job.name)}</strong><small>${esc(job.client)} · PIC ${esc(job.owner)}</small></span><time>${shortDate(job.startReminder)}</time></button></li>`).join("")||'<li class="empty-list">No start reminders in the next 30 days.</li>'}</ul></section>
-        <section class="card"><div class="card-head"><div><h2>Weekly deadline review</h2><p>Review and reset deadlines where needed</p></div></div><ul class="dashboard-action-list">${reviews.slice(0,10).map(job=>`<li><div class="review-row"><button data-job="${job.id}" data-job-tab="phases"><span><strong>${esc(job.name)}</strong><small>${esc(jobStage(job))} · ${esc(job.owner)}</small></span><time>${shortDate(job.deadlineReviewDate)}</time></button><button class="review-done" data-review-deadline="${job.id}">Reviewed</button></div></li>`).join("")||'<li class="empty-list">No deadline reviews due this week.</li>'}</ul></section>
-      </div>`;
+      <section class="card dashboard-wide compact-dashboard-section"><div class="card-head"><div><h2>Start reminders</h2><p>Jobs contracted earlier and approaching delivery start</p></div>${listSectionActions("reminders",reminders.length)}</div><ul class="dashboard-action-list">${visibleRows("reminders",reminders).map(job=>`<li><button data-job="${job.id}"><span><strong>${esc(job.name)}</strong><small>${esc(job.client)} · PIC ${esc(job.owner)}</small></span><time>${shortDate(job.startReminder)}</time></button></li>`).join("")||'<li class="empty-list">No start reminders in the next 30 days.</li>'}</ul></section>
+      <section class="card dashboard-wide compact-dashboard-section"><div class="card-head"><div><h2>Weekly deadline review</h2><p>Review and reset deadlines where needed</p></div>${listSectionActions("reviews",reviews.length)}</div><ul class="dashboard-action-list">${visibleRows("reviews",reviews).map(job=>`<li><div class="review-row"><button data-job="${job.id}" data-job-tab="phases"><span><strong>${esc(job.name)}</strong><small>${esc(jobStage(job))} · ${esc(job.owner)}</small></span><time>${shortDate(job.deadlineReviewDate)}</time></button><button class="review-done" data-review-deadline="${job.id}">Reviewed</button></div></li>`).join("")||'<li class="empty-list">No deadline reviews due this week.</li>'}</ul></section>`;
   }
 
   function metric(label, value, trend, foot, iconName, color, tint, negative = false) {
@@ -718,6 +719,7 @@
     if(kind==="clients") return clientData().map(item=>({value:item.client,label:item.client,meta:`${item.active} active jobs`,terms:[item.client]}));
     if(kind==="quotes") return state.quotes.map(quote=>({value:quote.id,label:quote.title,meta:`${quote.id} · ${quote.client}`,terms:[quote.id,quote.title,quote.client,quote.status]}));
     if(kind==="staff") return state.capacity.members.map(member=>({value:member.id,label:member.shortName,meta:`${member.staffId} · ${member.fullName} · ${member.department}`,terms:[member.staffId,member.shortName,member.fullName,member.rank,member.department,member.role]}));
+    if(kind==="dashboard-staff") return state.capacity.members.map(member=>({value:member.id,label:member.fullName,meta:`${member.shortName} · ${member.staffId} · ${member.department}`,terms:[member.staffId,member.shortName,member.fullName,member.rank,member.department,member.role]}));
     const dashboardKind=kind.replace("dashboard-","");
     if(["pipeline","risk"].includes(dashboardKind)) return dashboardData().jobs.map(job=>({value:job.id,label:job.name,meta:`${job.client} · ${job.owner}`,terms:[job.id,job.name,job.client,job.owner]}));
     if(dashboardKind==="tasks") return dashboardTaskRows(dashboardData().jobs).map(row=>({value:row.item.id,label:row.item.name,meta:`${row.job.name} · ${row.item.owner}`,terms:[row.item.id,row.item.name,row.job.name,row.job.client,row.item.owner]}));
@@ -743,6 +745,7 @@
     if(kind==="clients"){clientSearchSelection=value;clientQuery=label;return render("clients");}
     if(kind==="quotes"){quoteSearchSelection=value;quoteQuery=label;return render("quotes");}
     if(kind==="staff"){staffSearchSelection=value;staffQuery=label;return render("settings");}
+    if(kind==="dashboard-staff"){dashboardFilters.staff=value;dashboardStaffQuery="";return render("dashboard");}
     const key=kind.replace("dashboard-","");if(dashboardSectionFilters[key]){dashboardSectionFilters[key].selected=value;dashboardSectionFilters[key].query=label;render("dashboard");}
   }
 
@@ -753,6 +756,7 @@
     if(kind==="clients"){clientSearchSelection="";clientQuery="";return render("clients");}
     if(kind==="quotes"){quoteSearchSelection="";quoteQuery="";return render("quotes");}
     if(kind==="staff"){staffSearchSelection="";staffQuery="";return render("settings");}
+    if(kind==="dashboard-staff"){dashboardFilters.staff="";dashboardStaffQuery="";return render("dashboard");}
     const key=kind.replace("dashboard-","");if(dashboardSectionFilters[key]){dashboardSectionFilters[key].selected="";dashboardSectionFilters[key].query="";render("dashboard");}
   }
 
@@ -1617,7 +1621,7 @@
     if(target.closest("[data-template-cancel]")){if(templateHasUnsavedChanges()&&!window.confirm("Discard unsaved template edits?"))return;setTemplateDraft(null);render("settings");}
     const remove=target.closest("[data-template-delete]");if(remove){if(!window.confirm("Delete this template? Existing jobs will be kept."))return;state.jobTemplates=state.jobTemplates.filter(t=>t.id!==remove.dataset.templateDelete);if(!save())return;setTemplateDraft(null);render("settings");}
     const use=target.closest("[data-use-template]");if(use){const form=$("#job-form");form.reset();form.elements.start.value=todayKey();form.elements.startReminder.value=todayKey();prepareJobTemplate(use.dataset.useTemplate);openModal("#job-modal");}
-    if(target.closest("[data-dashboard-reset]")){dashboardFilters={period:"Month",service:"All services",staff:"All staff",jobStatus:"All job statuses",jobStage:"All stages",taskStatus:"All task statuses",deadlineStatus:"All deadline statuses"};dashboardSectionFilters={pipeline:{query:"",selected:"",metric:"All statuses"},tasks:{query:"",selected:"",metric:"All deadline statuses"},risk:{query:"",selected:"",metric:"All risk levels"}};expandedDashboardSections.clear();render("dashboard");return;}
+    if(target.closest("[data-dashboard-reset]")){dashboardFilters={period:"Month",service:"All services",staff:"",jobStatus:"All statuses",taskStatus:"All task statuses",deadlineStatus:"All deadline statuses"};dashboardStaffQuery="";dashboardSectionFilters={pipeline:{query:"",selected:"",metric:"All statuses"},tasks:{query:"",selected:"",metric:"All deadline statuses"},risk:{query:"",selected:"",metric:"All risk levels"}};expandedDashboardSections.clear();render("dashboard");return;}
     const expandSection=target.closest("[data-dashboard-expand]");if(expandSection){const key=expandSection.dataset.dashboardExpand;expandedDashboardSections.has(key)?expandedDashboardSections.delete(key):expandedDashboardSections.add(key);render("dashboard");return;}
     if(target.closest('[data-dashboard-module="schedule"]')){scheduleMode="timeline";render("schedule");return;}
     const reviewed=target.closest("[data-review-deadline]");if(reviewed){const job=getJob(reviewed.dataset.reviewDeadline);if(!job||!window.confirm(`Mark the weekly deadline review complete for ${job.id}?`))return;const previous=job.deadlineReviewDate,base=Math.max(timelineDay(todayKey()),timelineDay(previous));job.deadlineReviewDate=dateFromTimelineDay(base+7);auditHistory(job,{source:"dashboard",action:"Reviewed deadlines",entityType:"job",entityName:job.name,oldValue:previous,newValue:job.deadlineReviewDate,text:`${currentStaffName()} completed the weekly deadline review for ${job.id}.`});if(!save())return;render("dashboard");showToast(`Next review scheduled for ${shortDate(job.deadlineReviewDate)}.`);return;}
@@ -1704,7 +1708,7 @@
     }finally{if(passwordAttempted){form.elements.newPassword.value='';form.elements.confirmPassword.value='';}delete form.dataset.saving;button.disabled=false;button.textContent='Save changes';}
   });
   document.addEventListener("change",event=>{if(event.target.matches("#staff-rank")){staffRankFilter=event.target.value;render("settings");}if(event.target.matches("#staff-department")){staffDepartmentFilter=event.target.value;render("settings");}});
-  document.addEventListener("change",event=>{const fields={"dashboard-period":"period","dashboard-service":"service","dashboard-staff":"staff","dashboard-job-status":"jobStatus","dashboard-job-stage":"jobStage","dashboard-task-status":"taskStatus","dashboard-deadline-status":"deadlineStatus"},key=fields[event.target.id];if(!key)return;dashboardFilters[key]=event.target.value;render("dashboard");});
+  document.addEventListener("change",event=>{const fields={"dashboard-period":"period","dashboard-service":"service","dashboard-job-status":"jobStatus","dashboard-task-status":"taskStatus","dashboard-deadline-status":"deadlineStatus"},key=fields[event.target.id];if(!key)return;dashboardFilters[key]=event.target.value;render("dashboard");});
   document.addEventListener("change",event=>{const key=event.target.dataset.dashboardSectionMetric;if(!key||!dashboardSectionFilters[key])return;dashboardSectionFilters[key].metric=event.target.value;render("dashboard");});
 
   const renderers = { settings:renderSettings, dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients };
@@ -2537,7 +2541,7 @@
     }
     if(event.target.matches("[data-search-picker]")) {
       const kind=event.target.dataset.searchPicker,value=event.target.value;
-      if(kind==="jobs")jobQuery=value;else if(kind==="schedule")timelineFilters.clientQuery=value;else if(kind==="capacity")capacityQuery=value;else if(kind==="clients")clientQuery=value;else if(kind==="quotes")quoteQuery=value;else if(kind==="staff")staffQuery=value;else {const key=kind.replace("dashboard-","");if(dashboardSectionFilters[key])dashboardSectionFilters[key].query=value;}
+      if(kind==="jobs")jobQuery=value;else if(kind==="schedule")timelineFilters.clientQuery=value;else if(kind==="capacity")capacityQuery=value;else if(kind==="clients")clientQuery=value;else if(kind==="quotes")quoteQuery=value;else if(kind==="staff")staffQuery=value;else if(kind==="dashboard-staff"){dashboardStaffQuery=value;dashboardFilters.staff="";}else {const key=kind.replace("dashboard-","");if(dashboardSectionFilters[key])dashboardSectionFilters[key].query=value;}
       renderSearchPickerSuggestions(kind,value);
     }
     if (event.target.matches("#board-client-search")) { boardClientQuery=event.target.value; renderBoardClientSuggestions(boardClientQuery); }
