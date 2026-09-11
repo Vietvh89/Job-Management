@@ -1,6 +1,6 @@
 const fs=require('node:fs');
 const harness=fs.readFileSync('tests/audit.cjs','utf8').split('const a=sandbox.audit;')[0]
-  .replace('globalThis.audit={state,save,','globalThis.audit={state,save,moveBoardJob,normalizeViewJobs,jobBoardStage,filteredJobs,setTemplateFilter(value){jobTemplateFilter=value;},');
+  .replace('globalThis.audit={state,save,','globalThis.audit={state,save,moveBoardJob,normalizeViewJobs,jobBoardStage,filteredJobs,newBoardViewDraft,normalizeBoardViewSteps,reorderBoardViewSteps,jobManagerStatus,setTemplateFilter(value){jobTemplateFilter=value;},setJobFilter(value){jobFilter=value;},');
 eval(harness+String.raw`
 const a=sandbox.audit;
 const template=a.state.jobTemplates.find(t=>t.name==='Transfer Pricing');
@@ -20,6 +20,23 @@ jobs[1].status='Unknown old status';const outside=a.state.jobs.find(j=>j.templat
 assert.equal(a.normalizeViewJobs(target,[template.id]),1);assert.equal(jobs[1].status,'Receive');assert.equal(job.status,'Review');assert.equal(outside.status,outsideStatus);a.syncRelations();assert.equal(jobs[1].status,'Receive');
 a.setJobSection('calendar');a.setTemplateFilter(template.id);assert.equal(a.filteredJobs().length,jobs.length);assert.ok(a.filteredJobs().every(j=>j.templateId===template.id));
 a.setTemplateFilter('');assert.ok(a.filteredJobs().length>jobs.length);
+a.setJobSection('active');
+for(const status of ['Planning','In progress','On hold','Completed','Cancelled']){
+  a.setJobFilter(status);
+  const actual=Array.from(a.filteredJobs(),item=>item.id).sort();
+  const expected=Array.from(a.state.jobs.filter(item=>a.jobManagerStatus(item)===status),item=>item.id).sort();
+  assert.deepEqual(actual,expected,status+' filter must match Board grouping');
+}
+a.setJobFilter('All statuses');
+const draft=a.newBoardViewDraft();
+assert.deepEqual(Array.from(draft.steps,item=>item.name),['Planning','On hold','Completed','Cancelled']);
+const customA={id:'custom-a',name:'Collect',status:'Collect',visible:true,aliases:[]},customB={id:'custom-b',name:'Review',status:'Review',visible:true,aliases:[]};
+draft.steps.splice(1,0,customA,customB);
+assert.equal(a.reorderBoardViewSteps(draft.steps,'custom-a',1),true);
+assert.deepEqual(Array.from(draft.steps,item=>item.name),['Planning','Review','Collect','On hold','Completed','Cancelled']);
+assert.equal(a.reorderBoardViewSteps(draft.steps,'custom-b',-1),false);
+assert.equal(a.reorderBoardViewSteps(draft.steps,'custom-a',1),false);
+assert.equal(a.reorderBoardViewSteps(draft.steps,draft.steps[0].id,1),false);
 a.openJob(job.id,'information');const info=elements.get('#drawer-content').innerHTML;assert.ok(info.includes('Current Phase'));assert.ok(info.includes('Current Stage'));
-console.log('Board checks passed: backward/forward confirmation, cancel, stage persistence at 100%, scope reset, matching/unrelated jobs, template filtering and separate phase/stage.');
+console.log('Board checks passed: fixed boundary columns, movable middle steps, five status groups, list/Board filter parity, backward/forward confirmation, scope reset and stage persistence.');
 `);
