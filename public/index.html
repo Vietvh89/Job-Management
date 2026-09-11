@@ -85,7 +85,22 @@
       <div class="modal-head"><div><p class="eyebrow">Create</p><h2 id="new-job-title">New job</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
       <form id="job-form">
         <label>Job name<input name="name" required placeholder="e.g. Brand identity refresh" /></label>
-        <div class="form-row"><label>Client<select name="client" required><option value="">Select a client</option><option>Acme Design PZBW</option><option>Atlas UEMO</option><option>Greenleaf KERI</option><option>Harbour RKGO</option><option>Luma AYTN</option></select></label><label>Job owner<select name="owner"><option>MNYO</option><option>EFUN</option><option>ZBBA</option><option>WEPH</option></select></label></div>
+        <div class="form-row">
+          <label>Client
+            <div class="search-picker new-job-search-picker">
+              <input id="new-job-client-search" data-new-job-picker="client" type="search" required placeholder="Search client…" autocomplete="off" aria-autocomplete="list" aria-controls="new-job-client-results" />
+              <input name="client" type="hidden" />
+              <div class="client-suggestions search-picker-results" id="new-job-client-results" role="listbox" hidden></div>
+            </div>
+          </label>
+          <label>Job owner
+            <div class="search-picker new-job-search-picker">
+              <input id="new-job-owner-search" data-new-job-picker="owner" type="search" required placeholder="Search staff…" autocomplete="off" aria-autocomplete="list" aria-controls="new-job-owner-results" />
+              <input name="owner" type="hidden" />
+              <div class="client-suggestions search-picker-results" id="new-job-owner-results" role="listbox" hidden></div>
+            </div>
+          </label>
+        </div>
         <div class="form-row"><label>Start date<input type="date" name="start" value="2026-09-07" required /></label><label>Due date<input type="date" name="due" value="2026-10-02" required /></label></div>
         <div class="form-row"><label>Client size<select name="clientSize"><option>Large</option><option selected>Medium</option><option>Small</option></select></label><label>Start reminder<input type="date" name="startReminder" value="2026-09-07" required /></label></div>
         <label>Template<select name="template"><option>Blank job</option><option>Brand project</option><option>Consulting engagement</option><option>Website delivery</option><option>Monthly retainer</option></select></label>
