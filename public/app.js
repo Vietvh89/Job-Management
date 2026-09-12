@@ -117,6 +117,9 @@
   if (!state.capacity) state.capacity = structuredClone(capacitySeed);
   if (!state.timeline) state.timeline = structuredClone(timelineSeed);
   if (!state.recurring) state.recurring = structuredClone(recurringSeed);
+  if (!state.todo || typeof state.todo!=="object") state.todo={version:1,lists:[],tasks:[]};
+  if (!Array.isArray(state.todo.lists)) state.todo.lists=[];
+  if (!Array.isArray(state.todo.tasks)) state.todo.tasks=[];
   state.capacity.members.forEach((member,index)=>{member.staffId??=`HAN${String(index+1).padStart(3,"0")}`;member.targetUtilization??=80;member.status??="active";member.email??="";});
   state.jobs.forEach((job,index) => {
     job.contact ||= `${job.client.split(" ")[0]} project team`;
@@ -151,6 +154,10 @@
   let capacitySearchSelection = "";
   let capacityWeekOffset = 0;
   let scheduleMode = "timeline";
+  let todoView = "all";
+  let todoListId = "";
+  let todoQuery = "";
+  let selectedTodoId = "";
   let timelineGroup = "job";
   let timelineFilters = { owner:"All staff", status:"All statuses", clientQuery:"", clientSelection:"", department:"All departments" };
   let dashboardFilters = {period:"Month",service:"All services",staff:"",jobStatus:"All statuses",taskStatus:"All task statuses",deadlineStatus:"All deadline statuses"};
@@ -1019,6 +1026,69 @@
     return scheduleMode === "capacity" ? renderCapacityPlanner() : renderProjectSchedule();
   }
 
+  const todoOwnerKey=()=>String(window.JOBFLOW_CLOUD?.email||"local-user").toLowerCase();
+  function todoCurrentMember(){return state.capacity.members.find(member=>member.id===window.JOBFLOW_CLOUD?.staffId||member.email?.toLowerCase()===todoOwnerKey())||(!window.JOBFLOW_CLOUD?state.capacity.members[0]:null);}
+  function todoOwnerMatches(owner){const member=todoCurrentMember(),value=String(owner||"").trim().toLowerCase();return [member?.shortName,member?.fullName,member?.name,member?.email,window.JOBFLOW_CLOUD?.email].filter(Boolean).some(alias=>String(alias).trim().toLowerCase()===value);}
+  function todoSourceRows(){
+    const rows=[];
+    for(const project of state.timeline.projects){
+      const job=getJob(project.jobId);if(!job||job.status==="Cancelled")continue;
+      for(const task of project.items.filter(item=>item.type==="task")){
+        const due=task.due||dateFromTimelineDay(task.start+Math.max(1,task.duration)-1),sourceRef=`job:${job.id}:${task.id}`;
+        if(todoOwnerMatches(task.owner))rows.push({id:sourceRef,sourceRef,kind:"job-task",title:task.name,due,reminder:"",completed:task.progress===100,priority:job.priority||"medium",checklist:task.checklist||[],job,project,task,listId:"",sourceLabel:`${job.id} · ${job.name}`});
+        for(const subtask of task.subtasks||[])if(todoOwnerMatches(subtask.owner)){const ref=`job:${job.id}:${task.id}:${subtask.id}`;rows.push({id:ref,sourceRef:ref,kind:"job-subtask",title:subtask.name,due:subtask.due||due,reminder:"",completed:Boolean(subtask.completed),priority:job.priority||"medium",checklist:subtask.checklist||[],job,project,task,subtask,listId:"",sourceLabel:`${job.id} · ${task.name}`});}
+      }
+    }
+    return rows;
+  }
+  function todoPersonalRows(){return state.todo.tasks.filter(task=>task.owner===todoOwnerKey()).map(task=>({...task,id:`personal:${task.id}`,kind:"personal",personal:task,sourceLabel:task.sourceLabel||"Personal task"}));}
+  function todoAllRows(){const personal=todoPersonalRows(),imported=new Set(personal.map(row=>row.sourceRef).filter(Boolean));return [...todoSourceRows().filter(row=>!imported.has(row.sourceRef)),...personal];}
+  function todoDaysUntil(value){return value?timelineDay(value)-timelineDay(todayKey()):Number.POSITIVE_INFINITY;}
+  function todoVisibleRows(){
+    let rows=todoAllRows();
+    if(todoListId)rows=rows.filter(row=>row.kind==="personal"&&row.listId===todoListId);
+    else if(todoView==="tasks")rows=rows.filter(row=>row.kind==="personal"&&!row.listId);
+    else if(todoView==="overdue")rows=rows.filter(row=>!row.completed&&todoDaysUntil(row.due)<0);
+    else if(todoView==="soon")rows=rows.filter(row=>!row.completed&&todoDaysUntil(row.due)>=1&&todoDaysUntil(row.due)<=3);
+    else if(todoView==="week")rows=rows.filter(row=>!row.completed&&todoDaysUntil(row.due)>=3&&todoDaysUntil(row.due)<=7);
+    const q=todoQuery.trim().toLowerCase();if(q)rows=rows.filter(row=>[row.title,row.sourceLabel,row.due].some(value=>String(value||"").toLowerCase().includes(q)));
+    return rows.sort((a,b)=>Number(a.completed)-Number(b.completed)||(a.due||"9999").localeCompare(b.due||"9999")||a.title.localeCompare(b.title));
+  }
+  function todoListOptions(value=""){return `<option value="" ${!value?"selected":""}>Tasks</option>${state.todo.lists.filter(list=>list.owner===todoOwnerKey()).map(list=>`<option value="${list.id}" ${list.id===value?"selected":""}>${esc(list.name)}</option>`).join("")}`;}
+  function todoDeadlineLabel(row){const days=todoDaysUntil(row.due);if(!row.due)return "No deadline";if(row.completed)return `Completed · ${shortDate(row.due)}`;if(days<0)return `Overdue · ${shortDate(row.due)}`;if(days===0)return `Due today`;if(days===1)return `Due tomorrow`;return `Due in ${days} days · ${shortDate(row.due)}`;}
+  function todoDetailMarkup(row){
+    if(!row)return `<aside class="todo-detail"><div class="empty-state"><div class="empty-icon">${icon("todo")}</div><h3>Select a task</h3><p>Open a task to view its deadline, reminder and checklist.</p></div></aside>`;
+    const checks=row.checklist||[],editable=row.kind==="personal";
+    return `<aside class="todo-detail"><div class="todo-detail-head"><span class="todo-source">${esc(row.sourceLabel)}</span><h2>${esc(row.title)}</h2><span class="todo-due ${todoDaysUntil(row.due)<0&&!row.completed?"overdue":""}">${esc(todoDeadlineLabel(row))}</span></div><div class="todo-detail-section"><strong>Reminder</strong><span>${row.reminder?new Date(row.reminder).toLocaleString():"No reminder set"}</span></div><div class="todo-detail-section"><strong>Checklist <small>${checks.filter(item=>item.completed).length}/${checks.length}</small></strong>${checks.map(item=>`<label class="todo-check-row"><input type="checkbox" data-todo-checklist="${esc(row.id)}" data-todo-check-id="${item.id}" ${item.completed?"checked":""}><span>${esc(item.text)}</span></label>`).join("")||'<span>No checklist items.</span>'}</div><div class="todo-detail-actions">${row.job?`<button class="button ghost" data-open-todo-job="${row.job.id}">Open job</button>`:""}${editable?`<button class="button ghost" data-edit-todo="${row.personal.id}">Edit task</button><button class="button danger" data-delete-todo="${row.personal.id}">Delete</button>`:""}</div></aside>`;
+  }
+  function renderTodo(){
+    const all=todoAllRows(),open=all.filter(row=>!row.completed),overdue=open.filter(row=>todoDaysUntil(row.due)<0).length,soon=open.filter(row=>todoDaysUntil(row.due)>=1&&todoDaysUntil(row.due)<=3).length,week=open.filter(row=>todoDaysUntil(row.due)>=3&&todoDaysUntil(row.due)<=7).length,rows=todoVisibleRows();
+    if(!rows.some(row=>row.id===selectedTodoId))selectedTodoId=rows[0]?.id||"";const selected=rows.find(row=>row.id===selectedTodoId);
+    const smart=[["all","My tasks",open.length],["tasks","Tasks",state.todo.tasks.filter(task=>task.owner===todoOwnerKey()&&!task.listId&&!task.completed).length],["soon","Due in 1–3 days",soon],["week","Due in 3–7 days",week],["overdue","Overdue",overdue]];
+    const title=todoListId?state.todo.lists.find(list=>list.id===todoListId)?.name:smart.find(([key])=>key===todoView)?.[1]||"My tasks";
+    return `${pageHead("Personal work","To-do","Plan personal work and follow assigned job tasks in one place.",`<button class="button ghost" data-import-todo>${icon("plus")}Import task</button><button class="button primary" data-new-todo>${icon("plus")}Add task</button>`)}<section class="todo-kpis"><article><span>Open tasks</span><strong>${open.length}</strong></article><article><span>Due in 1–3 days</span><strong>${soon}</strong></article><article><span>Due in 3–7 days</span><strong>${week}</strong></article><article class="${overdue?"danger":""}"><span>Overdue</span><strong>${overdue}</strong></article></section><section class="card todo-shell"><aside class="todo-nav"><nav>${smart.map(([key,label,count])=>`<button class="${!todoListId&&todoView===key?"active":""}" data-todo-view="${key}"><span>${esc(label)}</span><b>${count}</b></button>`).join("")}</nav><div class="todo-list-title"><strong>Lists</strong><button class="icon-btn" data-new-todo-list aria-label="Create list">${icon("plus")}</button></div><nav>${state.todo.lists.filter(list=>list.owner===todoOwnerKey()).map(list=>`<button class="${todoListId===list.id?"active":""}" data-todo-list="${list.id}"><span>${esc(list.name)}</span><b>${state.todo.tasks.filter(task=>task.owner===todoOwnerKey()&&task.listId===list.id&&!task.completed).length}</b></button>`).join("")||'<p class="todo-nav-empty">Create a list for a project or personal workflow.</p>'}</nav></aside><div class="todo-main"><div class="todo-toolbar"><div><h2>${esc(title)}</h2><span>${rows.filter(row=>!row.completed).length} open · ${rows.filter(row=>row.completed).length} completed</span></div><input id="todo-search" type="search" value="${esc(todoQuery)}" placeholder="Search tasks…" aria-label="Search To-do tasks"></div><div class="todo-task-list">${rows.map(row=>`<article class="todo-task ${row.id===selectedTodoId?"selected":""} ${row.completed?"completed":""}"><input type="checkbox" data-todo-complete="${esc(row.id)}" ${row.completed?"checked":""} aria-label="Complete ${esc(row.title)}"><button data-select-todo="${esc(row.id)}"><strong>${esc(row.title)}</strong><small>${esc(row.sourceLabel)}</small><span class="todo-task-meta"><i class="${todoDaysUntil(row.due)<0&&!row.completed?"overdue":""}">${esc(todoDeadlineLabel(row))}</i>${row.reminder?`<i>${icon("bell")} Reminder</i>`:""}${row.checklist?.length?`<i>${icon("list")} ${row.checklist.filter(item=>item.completed).length}/${row.checklist.length}</i>`:""}</span></button></article>`).join("")||empty("todo","No tasks here","Change the filter, import a job task, or add a personal task.")}</div></div>${todoDetailMarkup(selected)}</section>`;
+  }
+  function openTodoTask(id=""){
+    const task=state.todo.tasks.find(item=>item.id===id),draft=task||{id:"",title:"",listId:todoListId||"",due:"",reminder:"",priority:"medium",checklist:[]};
+    showPanel(task?"Edit task":"Add task",`<form id="todo-task-form"><input type="hidden" name="id" value="${esc(draft.id)}"><label>Task name<input name="title" value="${esc(draft.title)}" required maxlength="180" autofocus></label><label>List<select name="listId">${todoListOptions(draft.listId)}</select></label><div class="form-row"><label>Deadline<input name="due" type="date" value="${esc(draft.due||"")}"></label><label>Reminder<input name="reminder" type="datetime-local" value="${esc(draft.reminder||"")}"></label></div><label>Priority<select name="priority"><option value="low" ${draft.priority==="low"?"selected":""}>Low</option><option value="medium" ${draft.priority==="medium"?"selected":""}>Medium</option><option value="high" ${draft.priority==="high"?"selected":""}>High</option></select></label><label>Checklist <small>One item per line</small><textarea name="checklist" rows="6" placeholder="Prepare documents&#10;Review figures&#10;Send draft">${esc((draft.checklist||[]).map(item=>item.text).join("\n"))}</textarea></label><div class="panel-form-actions"><button class="button primary" type="submit">Save task</button></div></form>`);
+  }
+  function openTodoImport(){
+    const candidates=todoImportCandidates();
+    showPanel("Import job task",`<form id="todo-import-form"><label>Search job task<input id="todo-import-search" type="search" placeholder="Search by task, job or owner…" autocomplete="off"></label><label>Task<select id="todo-import-source" name="sourceRef" required size="10">${todoImportOptions(candidates)}</select></label><label>Add to list<select name="listId">${todoListOptions(todoListId)}</select></label><div class="panel-form-actions"><button class="button primary" type="submit" ${candidates.length?"":"disabled"}>Import task</button></div></form>`);
+  }
+  function todoImportCandidates(query=""){const q=query.trim().toLowerCase();return state.timeline.projects.flatMap(project=>{const job=getJob(project.jobId);if(!job||job.status==="Cancelled")return [];return project.items.filter(item=>item.type==="task"&&item.progress!==100).flatMap(task=>[{sourceRef:`job:${job.id}:${task.id}`,title:task.name,due:task.due||dateFromTimelineDay(task.start+Math.max(1,task.duration)-1),owner:task.owner,job,task,checklist:task.checklist||[]},...(task.subtasks||[]).filter(sub=>!sub.completed).map(sub=>({sourceRef:`job:${job.id}:${task.id}:${sub.id}`,title:sub.name,due:sub.due,owner:sub.owner,job,task,subtask:sub,checklist:sub.checklist||[]}))]);}).filter(row=>!q||[row.title,row.job.name,row.job.id,row.owner].some(value=>String(value||"").toLowerCase().includes(q)));}
+  function todoImportOptions(rows){return rows.map(row=>`<option value="${esc(row.sourceRef)}">${esc(row.job.id)} · ${esc(row.title)} · ${esc(row.owner)} · ${row.due?shortDate(row.due):"No deadline"}</option>`).join("");}
+  function todoReminderRows(){const limit=Date.now()+7*86400000;return todoPersonalRows().filter(row=>!row.completed&&row.reminder&&new Date(row.reminder).getTime()<=limit).sort((a,b)=>new Date(a.reminder)-new Date(b.reminder));}
+  function updateTodoSource(row,completed){
+    if(row.kind==="job-task"){
+      row.task.progress=completed?100:0;row.task.status=completed?"Complete":"Planned";
+      const legacy=row.job.tasks.find(task=>task[3]===row.task.id);if(legacy)legacy[1]=completed;
+      syncProjectProgress(row.project);auditHistory(row.job,{source:"todo",action:completed?"Completed task":"Reopened task",entityType:"task",entityName:row.task.name,oldValue:completed?"Not complete":"Complete",newValue:completed?"Complete":"Not complete",text:`${currentStaffName()} ${completed?"completed":"reopened"} task “${row.task.name}” from To-do.`});
+    }else if(row.kind==="job-subtask"){
+      row.subtask.completed=completed;auditHistory(row.job,{source:"todo",action:completed?"Completed sub-task":"Reopened sub-task",entityType:"sub-task",entityName:row.subtask.name,oldValue:completed?"Not complete":"Complete",newValue:completed?"Complete":"Not complete",text:`${currentStaffName()} ${completed?"completed":"reopened"} sub-task “${row.subtask.name}” from To-do.`});
+    }
+  }
+
   function renderTimesheets() {
     const logged = state.times.reduce((sum, entry) => sum + entry.hours, 0);
     return `${pageHead("Track", "My timesheet", "Capture billable and non-billable time without leaving your workflow.", `<button class="button primary" id="add-time">${icon("plus")}Add time</button>`)}
@@ -1326,12 +1396,12 @@
     ['documents','Job Documents',[0,1,2,3]],['notes','Job Notes',[0,1,2,3]],['phases','Job Phases & Tasks',[0,1,2,3]],
     ['milestones','Job Milestones',[0,1,2,3]],['costs','Job Costs',[0,1,2]],['billings','Job Estimated Billings',[0,1,2]],
     ['financials','Job Financial Summary',[0,1]],['reports','Job Management Reports / Overview',[0,1]],
-    ['jobManager','Job Manager — job visibility',['assigned','all']],['schedule','Schedule & Staff Allocation',[0,1,2,3]],
+    ['jobManager','Job Manager — job visibility',['assigned','all']],['schedule','Schedule & Staff Allocation',[0,1,2,3]],['todo','To-do Items',[0,1,2,3]],
     ['staff','Staff Master',[0,1]],['templates','Templates',[0,1]],['boardViews','Board Views',[0,1]]
   ];
   const accessLabels={0:'No Access',1:'View Access',2:'Create/Edit Access',3:'Full Access',assigned:'View Assigned Jobs',all:'View All Jobs'};
   const isAccountOwner=()=>!window.JOBFLOW_CLOUD||window.JOBFLOW_CLOUD.role==='admin';
-  const accessLevel=key=>isAccountOwner()?3:Number(window.JOBFLOW_CLOUD.permissions?.[key]||0);
+  const accessLevel=key=>isAccountOwner()?3:Number(window.JOBFLOW_CLOUD.permissions?.[key]??(key==='todo'?2:0));
   const canAccess=(key,level=1)=>accessLevel(key)>=level;
   let selectedPrivilegeStaff='',selectedPrivilegeEmail='',privilegeDraft=null,groupDraft=null;
   const accessRules=[
@@ -1344,7 +1414,8 @@
     ['[data-delete-work-item],[data-delete-subtask],[data-delete-checklist]','phases',3],
     ['[data-add-milestone],#milestone-form','milestones',2],
     ['#edit-timeline-form,[data-edit-item],[data-gantt-shift],[data-adjust-allocation],[data-timer-job],#start-timer-form,#allocation-form','schedule',2],
-    ['[data-delete-timeline],[data-remove-allocation]','schedule',3]
+    ['[data-delete-timeline],[data-remove-allocation]','schedule',3],
+    ['#todo-task-form,#todo-list-form,#todo-import-form,[data-new-todo],[data-new-todo-list],[data-import-todo],[data-edit-todo],[data-todo-complete],[data-todo-checklist]','todo',2],['[data-delete-todo],[data-delete-todo-list]','todo',3]
   ];
   function deniedAccess(element){
     if(isAccountOwner())return false;
@@ -1356,7 +1427,7 @@
       if(el.tagName==='FORM'){el.querySelectorAll('input,select,textarea,button').forEach(n=>n.disabled=true);}
       else {el.disabled=true;el.setAttribute('aria-disabled','true');el.title='Your access level does not allow this action.';}
     }
-    const views={dashboard:'reports',jobs:'jobs',schedule:'schedule',clients:'clients'};
+    const views={dashboard:'reports',jobs:'jobs',schedule:'schedule',todo:'todo',clients:'clients'};
     for(const el of document.querySelectorAll('.nav-item[data-view]'))el.hidden=el.dataset.view==='settings'?!['staff','templates','boardViews'].some(key=>canAccess(key)):!canAccess(views[el.dataset.view]);
     if(!canAccess('jobs',2))for(const el of document.querySelectorAll('[draggable="true"]'))el.draggable=false;
     for(const key of ['contact','orderNo']){const input=document.querySelector(`#job-info-form [name="${key}"]`);if(input&&!canAccess('clients',2))input.disabled=true;}
@@ -1372,10 +1443,10 @@
   const accessGroups=()=>window.JOBFLOW_CLOUD?.groups||[];
   const accessMembers=()=>window.JOBFLOW_CLOUD?.members||[];
   function permissionMatrix(values={},group={},overrides=false,owner=false){
-    return `<div class="access-table-scroll"><table class="jobs-table access-table"><thead><tr><th>General Privileges</th><th>${overrides?'Special Permission':'Group Permission'}</th><th>Effective Permission</th></tr></thead><tbody>${accessCatalog.map(([key,label,choices])=>{const inherited=key==='jobManager'?(group[key]||'assigned'):(group[key]??0),effective=owner?(key==='jobManager'?'all':3):(values[key]??inherited);return `<tr><td>${esc(label)}${['staff','templates','boardViews'].includes(key)?'<small class="table-note">Editing is reserved to Account Owners.</small>':''}</td><td><select name="permission-${key}" data-permission-key="${key}" ${owner?'disabled':''}>${overrides?`<option value="inherit" ${values[key]===undefined?'selected':''}>Use Group Access · ${accessLabels[inherited]}</option>`:''}${choices.map(value=>`<option value="${value}" ${String(values[key]??(overrides?'inherit':inherited))===String(value)?'selected':''}>${accessLabels[value]}</option>`).join('')}</select></td><td><span class="access-badge ${effective===0?'denied':effective==='assigned'?'limited':'allowed'}" data-effective-key="${key}">${accessLabels[effective]}</span></td></tr>`;}).join('')}<tr><td>Collaboration Manager</td><td colspan="2"><span class="table-note">Not available in this application.</span></td></tr></tbody></table></div>`;
+    return `<div class="access-table-scroll"><table class="jobs-table access-table"><thead><tr><th>General Privileges</th><th>${overrides?'Special Permission':'Group Permission'}</th><th>Effective Permission</th></tr></thead><tbody>${accessCatalog.map(([key,label,choices])=>{const inherited=key==='jobManager'?(group[key]||'assigned'):(group[key]??(key==='todo'?2:0)),effective=owner?(key==='jobManager'?'all':3):(values[key]??inherited);return `<tr><td>${esc(label)}${['staff','templates','boardViews'].includes(key)?'<small class="table-note">Editing is reserved to Account Owners.</small>':''}</td><td><select name="permission-${key}" data-permission-key="${key}" ${owner?'disabled':''}>${overrides?`<option value="inherit" ${values[key]===undefined?'selected':''}>Use Group Access · ${accessLabels[inherited]}</option>`:''}${choices.map(value=>`<option value="${value}" ${String(values[key]??(overrides?'inherit':inherited))===String(value)?'selected':''}>${accessLabels[value]}</option>`).join('')}</select></td><td><span class="access-badge ${effective===0?'denied':effective==='assigned'?'limited':'allowed'}" data-effective-key="${key}">${accessLabels[effective]}</span></td></tr>`;}).join('')}<tr><td>Collaboration Manager</td><td colspan="2"><span class="table-note">Not available in this application.</span></td></tr></tbody></table></div>`;
   }
   function readPermissionForm(form,overrides){
-    const p={};for(const [key] of accessCatalog){const value=form.elements[`permission-${key}`]?.value;if(value==='inherit'&&overrides)continue;p[key]=key==='jobManager'?value:Number(value);}return p;
+    const p={};for(const [key] of accessCatalog){const value=form.elements[`permission-${key}`]?.value;if(value===undefined||(value==='inherit'&&overrides))continue;p[key]=key==='jobManager'?value:Number(value);}return p;
   }
   function renderPrivileges(){
     if(!isAccountOwner())return '<section class="card"><p>Only Account Owners can manage privileges.</p></section>';
@@ -1753,11 +1824,56 @@
   document.addEventListener("change",event=>{const fields={"dashboard-period":"period","dashboard-service":"service","dashboard-job-status":"jobStatus","dashboard-task-status":"taskStatus","dashboard-deadline-status":"deadlineStatus"},key=fields[event.target.id];if(!key)return;dashboardFilters[key]=event.target.value;render("dashboard");});
   document.addEventListener("change",event=>{const key=event.target.dataset.dashboardSectionMetric;if(!key||!dashboardSectionFilters[key])return;dashboardSectionFilters[key].metric=event.target.value;render("dashboard");});
 
-  const renderers = { settings:renderSettings, dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients };
+  document.addEventListener("click",event=>{
+    const smart=event.target.closest("[data-todo-view]");if(smart){todoView=smart.dataset.todoView;todoListId="";selectedTodoId="";render("todo");return;}
+    const list=event.target.closest("[data-todo-list]");if(list){todoListId=list.dataset.todoList;selectedTodoId="";render("todo");return;}
+    const selected=event.target.closest("[data-select-todo]");if(selected){selectedTodoId=selected.dataset.selectTodo;render("todo");return;}
+    if(event.target.closest("[data-new-todo]")){openTodoTask();return;}
+    if(event.target.closest("[data-new-todo-list]")){showPanel("Create list",`<form id="todo-list-form"><label>List name<input name="name" required maxlength="100" placeholder="e.g. Month-end work" autofocus></label><div class="panel-form-actions"><button class="button primary" type="submit">Create list</button></div></form>`);return;}
+    if(event.target.closest("[data-import-todo]")){openTodoImport();return;}
+    const edit=event.target.closest("[data-edit-todo]");if(edit){openTodoTask(edit.dataset.editTodo);return;}
+    const remove=event.target.closest("[data-delete-todo]");if(remove){const task=state.todo.tasks.find(item=>item.id===remove.dataset.deleteTodo);if(task&&window.confirm(`Delete task “${task.title}”?`)){state.todo.tasks=state.todo.tasks.filter(item=>item.id!==task.id);selectedTodoId="";if(!save())return;render("todo");showToast("Task deleted.");}return;}
+    const openJobButton=event.target.closest("[data-open-todo-job]");if(openJobButton){openJob(openJobButton.dataset.openTodoJob,"phases");return;}
+    const reminder=event.target.closest("[data-open-todo-reminder]");if(reminder){todoView="all";todoListId="";selectedTodoId=reminder.dataset.openTodoReminder;$("#audit-panel")?.remove();render("todo");return;}
+  });
+  document.addEventListener("input",event=>{
+    if(event.target.id==="todo-search"){todoQuery=event.target.value;render("todo");const input=$("#todo-search");if(input){input.focus();input.setSelectionRange(input.value.length,input.value.length);}return;}
+    if(event.target.id==="todo-import-search"){const select=$("#todo-import-source");if(select)select.innerHTML=todoImportOptions(todoImportCandidates(event.target.value));}
+  });
+  document.addEventListener("change",event=>{
+    if(event.target.matches("[data-todo-complete]")){
+      const row=todoAllRows().find(item=>item.id===event.target.dataset.todoComplete);if(!row)return;const next=event.target.checked;
+      if(!window.confirm(`${next?"Complete":"Reopen"} “${row.title}”?`)){event.target.checked=!next;return;}
+      if(row.kind==="personal")row.personal.completed=next;else updateTodoSource(row,next);if(!save())return;render("todo");showToast(next?"Task completed.":"Task reopened.");return;
+    }
+    if(event.target.matches("[data-todo-checklist]")){
+      const row=todoAllRows().find(item=>item.id===event.target.dataset.todoChecklist),item=row?.checklist?.find(check=>check.id===event.target.dataset.todoCheckId);if(!item)return;item.completed=event.target.checked;
+      if(row.job)auditHistory(row.job,{source:"todo",action:item.completed?"Checked checklist item":"Unchecked checklist item",entityType:"checklist",entityName:item.text,oldValue:item.completed?"Unchecked":"Checked",newValue:item.completed?"Checked":"Unchecked",text:`${currentStaffName()} ${item.completed?"checked":"unchecked"} “${item.text}” from To-do.`});
+      if(!save())return;render("todo");return;
+    }
+  });
+  document.addEventListener("submit",event=>{
+    if(event.target.id==="todo-list-form"){
+      event.preventDefault();const name=String(new FormData(event.target).get("name")||"").trim();if(!name)return;if(state.todo.lists.some(list=>list.owner===todoOwnerKey()&&list.name.toLowerCase()===name.toLowerCase())){showToast("A list with this name already exists.");return;}
+      const list={id:crypto.randomUUID(),name,owner:todoOwnerKey()};state.todo.lists.push(list);todoListId=list.id;todoView="all";if(!save())return;$("#audit-panel")?.remove();render("todo");showToast("List created.");return;
+    }
+    if(event.target.id==="todo-task-form"){
+      event.preventDefault();const data=Object.fromEntries(new FormData(event.target)),title=String(data.title||"").trim();if(!title)return;let task=state.todo.tasks.find(item=>item.id===data.id),existingChecks=task?.checklist||[];
+      const checklist=String(data.checklist||"").split(/\r?\n/).map(text=>text.trim()).filter(Boolean).map((text,index)=>({id:existingChecks[index]?.id||crypto.randomUUID(),text,completed:existingChecks[index]?.text===text?Boolean(existingChecks[index].completed):false}));
+      const values={title,listId:String(data.listId||""),due:String(data.due||""),reminder:String(data.reminder||""),priority:String(data.priority||"medium"),checklist};
+      if(task)Object.assign(task,values);else{task={id:crypto.randomUUID(),owner:todoOwnerKey(),completed:false,createdAt:new Date().toISOString(),...values};state.todo.tasks.push(task);}selectedTodoId=`personal:${task.id}`;todoListId=task.listId;todoView=task.listId?"all":"tasks";if(!save())return;$("#audit-panel")?.remove();render("todo");showToast(data.id?"Task updated.":"Task created.");return;
+    }
+    if(event.target.id==="todo-import-form"){
+      event.preventDefault();const data=Object.fromEntries(new FormData(event.target)),source=todoImportCandidates().find(row=>row.sourceRef===data.sourceRef);if(!source){showToast("Select a job task to import.");return;}if(state.todo.tasks.some(task=>task.owner===todoOwnerKey()&&task.sourceRef===source.sourceRef)){showToast("This task is already in your To-do.");return;}
+      const task={id:crypto.randomUUID(),owner:todoOwnerKey(),title:source.title,listId:String(data.listId||""),due:source.due||"",reminder:"",priority:source.job.priority||"medium",completed:false,checklist:structuredClone(source.checklist||[]),sourceRef:source.sourceRef,sourceLabel:`${source.job.id} · ${source.job.name}`,jobId:source.job.id,createdAt:new Date().toISOString()};state.todo.tasks.push(task);selectedTodoId=`personal:${task.id}`;todoListId=task.listId;todoView=task.listId?"all":"tasks";if(!save())return;$("#audit-panel")?.remove();render("todo");showToast("Job task imported.");
+    }
+  });
+
+  const renderers = { settings:renderSettings, dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, todo:renderTodo, clients: renderClients };
 
   function render(view = currentView) {
     if(!renderers[view])view="dashboard";
-    const viewPermission={dashboard:'reports',jobs:'jobs',schedule:'schedule',clients:'clients'};
+    const viewPermission={dashboard:'reports',jobs:'jobs',schedule:'schedule',todo:'todo',clients:'clients'};
     const permitted=name=>name==='settings'?isAccountOwner()||['staff','templates','boardViews'].some(key=>canAccess(key)):canAccess(viewPermission[name]);
     if(!permitted(view))view=Object.keys(renderers).find(permitted);
     if(!view){$('#view-root').innerHTML='<section class="card"><h2>No access assigned</h2><p>Contact your Account Owner to assign a Group Access or user privileges.</p></section>';return;}
@@ -2131,8 +2247,8 @@
     if(event.target.closest("[data-export-selected]")) downloadJSON("jobflow-selected-jobs.json",state.jobs.filter(j=>selectedJobs.has(j.id)));
     if(event.target.closest("[data-clear-selection]")){selectedJobs.clear();render("jobs");}
     const stop=()=>{event.stopImmediatePropagation();};
-    if(event.target.closest("#notification-btn")){stop(); showPanel("Deadlines",state.jobs.flatMap(j=>j.milestones.filter(m=>m[1]<=dateFromTimelineDay(timelineDay(todayKey())+7) && !["Complete","Cancelled"].includes(j.status)).map(m=>`<button class="search-result" data-job="${j.id}" data-job-tab="milestones"><span>${esc(j.id)} · ${esc(m[0])}<small>${m[1]}</small></span></button>`)).join("")||"No upcoming deadlines.");}
-    if(event.target.closest("#help-btn")){stop();showPanel("Quick guide","<p>Overview summarizes current records. Jobs manages job details, phases, milestones and documents. Schedule edits the same phases/tasks/milestones and allocates staff by week.</p><p>Use Calendar arrows to change months. Click a milestone to open its job. Dates use calendar days. Data is local to this browser; use Profile → Download backup regularly.</p>");}
+    if(event.target.closest("#notification-btn")){stop();const reminders=todoReminderRows(),milestones=state.jobs.flatMap(j=>j.milestones.filter(m=>m[1]<=dateFromTimelineDay(timelineDay(todayKey())+7) && !["Complete","Cancelled"].includes(j.status)).map(m=>({job:j,milestone:m})));showPanel("Notifications",`<div class="notification-panel-group"><h3>To-do reminders</h3>${reminders.map(row=>`<button class="search-result" data-open-todo-reminder="${row.id}"><span>${esc(row.title)}<small>${new Date(row.reminder).toLocaleString()} · ${esc(row.sourceLabel)}</small></span></button>`).join("")||'<p>No To-do reminders in the next 7 days.</p>'}</div><div class="notification-panel-group"><h3>Upcoming milestones</h3>${milestones.map(({job,milestone})=>`<button class="search-result" data-job="${job.id}" data-job-tab="milestones"><span>${esc(job.id)} · ${esc(milestone[0])}<small>${milestone[1]}</small></span></button>`).join("")||'<p>No upcoming milestones.</p>'}</div>`);}
+    if(event.target.closest("#help-btn")){stop();showPanel("Quick guide","<p>Overview summarizes current records. Jobs manages job details, phases, milestones and documents. Schedule edits the same phases/tasks/milestones and allocates staff by week. To-do collects assigned work and personal tasks with lists, reminders and checklists.</p><p>Use Calendar arrows to change months and click a milestone to open its job.</p>");}
     if(event.target.closest('[aria-label="Profile menu"]'))showPanel("Local workspace",`<p>${esc(currentStaffName())} is the current demo workspace identity. This workspace stores data only in this browser.</p><button class="button primary" data-backup>Download backup</button>`);
     if(event.target.closest("[data-backup]"))downloadJSON("jobflow-backup.json",state);
     if(event.target.closest("[data-timer-job],#timer-button,#timer-card-button")){
@@ -2951,6 +3067,9 @@
     window.JOBFLOW_CLOUD.onSaved=payload=>{
       if(!payload)return;
       state=structuredClone(payload);
+      if(!state.todo||typeof state.todo!=="object")state.todo={version:1,lists:[],tasks:[]};
+      if(!Array.isArray(state.todo.lists))state.todo.lists=[];
+      if(!Array.isArray(state.todo.tasks))state.todo.tasks=[];
       state.capacity.members.forEach(m=>{m.status??='active';m.email??='';});
       syncRelations();lastSavedState=JSON.stringify(state);render();
       if(activeJobId&&$('#detail-drawer').classList.contains('open'))openJob(activeJobId,activeJobTab);
