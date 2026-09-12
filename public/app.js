@@ -1071,14 +1071,17 @@
   function openTodoTask(id=""){
     const task=state.todo.tasks.find(item=>item.id===id),draft=task||{id:"",title:"",listId:todoListId||"",due:"",reminder:"",note:"",priority:"medium",checklist:[]};
     showPanel(task?"Edit task":"Add task",`<form id="todo-task-form"><input type="hidden" name="id" value="${esc(draft.id)}"><label>Task name<input name="title" value="${esc(draft.title)}" required maxlength="180" autofocus></label><label>List<select name="listId">${todoListOptions(draft.listId)}</select></label><div class="form-row"><label>Deadline<input name="due" type="date" value="${esc(draft.due||"")}"></label><label>Reminder<input name="reminder" type="datetime-local" value="${esc(draft.reminder||"")}"></label></div><label>Note<textarea name="note" rows="4" maxlength="2000" placeholder="Add notes for this task">${esc(draft.note||"")}</textarea></label><label>Priority<select name="priority"><option value="low" ${draft.priority==="low"?"selected":""}>Low</option><option value="medium" ${draft.priority==="medium"?"selected":""}>Medium</option><option value="high" ${draft.priority==="high"?"selected":""}>High</option></select></label><label>Checklist <small>One item per line</small><textarea name="checklist" rows="6" placeholder="Prepare documents&#10;Review figures&#10;Send draft">${esc((draft.checklist||[]).map(item=>item.text).join("\n"))}</textarea></label><div class="panel-form-actions"><button class="button primary" type="submit">Save task</button></div></form>`);
+    $("#todo-task-form")?.addEventListener("submit",handleTodoSubmit);
   }
   function openTodoList(id=""){
     const list=state.todo.lists.find(item=>item.id===id&&item.owner===todoOwnerKey());
     showPanel(list?"Rename list":"Create list",`<form id="todo-list-form"><input type="hidden" name="id" value="${esc(list?.id||"")}"><label>List name<input name="name" value="${esc(list?.name||"")}" required maxlength="100" placeholder="e.g. Month-end work" autofocus></label><div class="panel-form-actions"><button class="button primary" type="submit">${list?"Save changes":"Create list"}</button></div></form>`);
+    $("#todo-list-form")?.addEventListener("submit",handleTodoSubmit);
   }
   function openTodoImport(){
     const candidates=todoImportCandidates();
     showPanel("Import job task",`<form id="todo-import-form"><label>Search job task<input id="todo-import-search" type="search" placeholder="Search by task, job or owner…" autocomplete="off"></label><label>Task<select id="todo-import-source" name="sourceRef" required size="10">${todoImportOptions(candidates)}</select></label><label>Add to list<select name="listId">${todoListOptions(todoListId)}</select></label><div class="panel-form-actions"><button class="button primary" type="submit" ${candidates.length?"":"disabled"}>Import task</button></div></form>`);
+    $("#todo-import-form")?.addEventListener("submit",handleTodoSubmit);
   }
   function todoImportCandidates(query=""){const q=query.trim().toLowerCase();return state.timeline.projects.flatMap(project=>{const job=getJob(project.jobId);if(!job||job.status==="Cancelled")return [];return project.items.filter(item=>item.type==="task"&&item.progress!==100).flatMap(task=>[{sourceRef:`job:${job.id}:${task.id}`,title:task.name,due:task.due||dateFromTimelineDay(task.start+Math.max(1,task.duration)-1),owner:task.owner,job,task,checklist:task.checklist||[]},...(task.subtasks||[]).filter(sub=>!sub.completed).map(sub=>({sourceRef:`job:${job.id}:${task.id}:${sub.id}`,title:sub.name,due:sub.due,owner:sub.owner,job,task,subtask:sub,checklist:sub.checklist||[]}))]);}).filter(row=>!q||[row.title,row.job.name,row.job.id,row.owner].some(value=>String(value||"").toLowerCase().includes(q)));}
   function todoImportOptions(rows){return rows.map(row=>`<option value="${esc(row.sourceRef)}">${esc(row.job.id)} · ${esc(row.title)} · ${esc(row.owner)} · ${row.due?shortDate(row.due):"No deadline"}</option>`).join("");}
@@ -1749,7 +1752,9 @@
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="template"],#job-form [name="start"]'))updateTemplatePreview(true);if(event.target.matches('#board-view-form [name="templateIds"]')){readBoardViewDraft();updateBoardViewScopeSummary();event.target.closest("label")?.querySelector("b")?.replaceChildren(event.target.checked?"Included":"Add");}});
   document.addEventListener("change",event=>{const id=event.target.dataset.notificationCustomEnabled;if(!id)return;const rule=notificationSettings().custom.find(item=>item.id===id);if(!rule)return;const previous=rule.enabled;rule.enabled=event.target.checked;if(!save()){rule.enabled=previous;event.target.checked=previous;return;}render('settings');showToast(rule.enabled?'Custom notification enabled.':'Custom notification paused.');});
   document.addEventListener("change",event=>{if(event.target.matches('#job-form [name="recurring"],#job-info-form [name="recurring"]'))updateRecurringFields(event.target.form);});
-  document.addEventListener("submit",event=>{
+  function handleTodoSubmit(event){
+    if(!["todo-list-form","todo-task-form","todo-import-form"].includes(event.target.id))return;
+    event.preventDefault();event.stopPropagation();
     if(event.target.id!=="board-view-form")return;
     event.preventDefault();readBoardViewDraft();normalizeBoardViewSteps(boardViewDraft);
     const previous=state.boardViews.find(view=>view.id===boardViewDraft.id),name=boardViewDraft.name.trim();
@@ -1770,7 +1775,8 @@
     state.jobTemplates.forEach(template=>{if(boardViewDraft.templateIds.includes(template.id))template.boardViewId=copy.id;else if(template.boardViewId===copy.id)template.boardViewId="";});
     normalizeViewJobs(copy,boardViewDraft.templateIds);selectedBoardViewId=copy.id;boardStepFilter="All steps";boardViewDraft=null;
     if(!save())return;$("#audit-panel")?.remove();render(currentView);showToast(`${copy.name} saved.`);
-  });
+  }
+  document.addEventListener("submit",handleTodoSubmit);
   document.addEventListener("submit",event=>{if(event.target.id!=="template-board-view-form")return;event.preventDefault();const data=new FormData(event.target);state.jobTemplates.forEach(template=>{template.boardViewId=String(data.get(`template-${template.id}`)||"");});if(!save())return;render("settings");showToast("Template Board views saved.");});
   document.addEventListener("submit",event=>{if(event.target.id!=="template-editor")return;event.preventDefault();readTemplateDraft();const error=validateTemplate(templateDraft);if(error){showToast(error);return;}const copy=structuredClone(templateDraft);copy.name=copy.name.trim();const index=state.jobTemplates.findIndex(t=>t.id===copy.id);if(index<0)state.jobTemplates.push(copy);else state.jobTemplates[index]=copy;if(!save())return;setTemplateDraft(structuredClone(copy));render("settings");showToast("Template saved for future jobs.");});
   document.addEventListener("submit",event=>{
