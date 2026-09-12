@@ -113,7 +113,7 @@
         $('cloud-status').textContent='Đang lưu…';
         void persist(payload);return true;
       }};
-      const script=document.createElement('script');script.src='./app.js?v=20260913-todo-live-save-7';
+      const script=document.createElement('script');script.src='./app.js?v=20260913-todo-live-save-8';
       await new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=()=>reject(new Error('Không tải được ứng dụng.'));document.body.appendChild(script);});
       loaded=true;$('cloud-auth').hidden=true;document.body.classList.remove('cloud-locked');
       $('cloud-bar').hidden=false;$('cloud-user').textContent=membership.email+' · '+membership.role;
