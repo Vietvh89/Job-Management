@@ -3069,6 +3069,13 @@
 
   $$(".modal-backdrop").forEach(modal => modal.addEventListener("mousedown", event => { if (event.target === modal) closeModal(modal); }));
 
+  document.addEventListener("click",event=>{
+    const button=event.target.closest?.("[data-save-todo-form]");
+    if(!button)return;
+    event.preventDefault();event.stopImmediatePropagation();
+    handleTodoSubmit({target:button.form||button.closest("form"),preventDefault(){},stopPropagation(){}});
+  },true);
+
   seedJobTemplates();
   const seededBoardViews=seedBoardViews();
   state.jobTemplates.forEach(normalizeTemplateDetail);
