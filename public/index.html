@@ -86,7 +86,7 @@
     <section class="modal" role="dialog" aria-modal="true" aria-labelledby="new-job-title">
       <div class="modal-head"><div><p class="eyebrow">Create</p><h2 id="new-job-title">New job</h2></div><button class="icon-btn" data-close-modal aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button></div>
       <form id="job-form">
-        <label>Job name<input name="name" required placeholder="e.g. Brand identity refresh" /></label>
+        <label>Project Description<input name="name" required placeholder="e.g. HZO - TP 26" /></label>
         <div class="form-row">
           <label>Client
             <div class="search-picker new-job-search-picker">
@@ -103,8 +103,8 @@
             </div>
           </label>
         </div>
-        <div class="form-row"><label>Start date<input type="date" name="start" value="2026-09-07" required /></label><label>Due date<input type="date" name="due" value="2026-10-02" required /></label></div>
-        <div class="form-row"><label>Client size<select name="clientSize"><option>Large</option><option selected>Medium</option><option>Small</option></select></label><label>Start reminder<input type="date" name="startReminder" value="2026-09-07" required /></label></div>
+        <div class="form-row"><label>Start date<input type="date" name="start" value="2026-09-07" required /></label><label>Job Completion Deadline<input type="date" name="due" value="2026-10-02" required /></label></div>
+        <div class="form-row"><label>Project Size<select name="clientSize"><option>Large</option><option selected>Medium</option><option>Small</option></select></label><label>Start reminder<input type="date" name="startReminder" value="2026-09-07" required /></label></div>
         <label>Template<select name="template"><option>Blank job</option><option>Brand project</option><option>Consulting engagement</option><option>Website delivery</option><option>Monthly retainer</option></select></label>
         <label class="recurring-check"><input type="checkbox" name="recurring" /> Recurring job</label>
         <div class="form-row recurring-job-options" hidden><label>Frequency<select name="recurringCadence"><option>Weekly</option><option selected>Monthly</option><option>Quarterly</option><option>Annually</option></select></label><label>Next occurrence<input type="date" name="nextOccurrence" value="2026-10-01" /></label></div>
